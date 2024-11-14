@@ -1,2 +1,2 @@
-pyinstaller --onefile --windowed  main.py
+pyinstaller --onefile --windowed --clean --strip main.py
 

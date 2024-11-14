@@ -569,16 +569,29 @@ class TextRedirector:
 # Создание интерфейса
 root = tk.Tk()
 root.title("Распознавание текста из PDF")
-root.geometry("800x900")
 root.protocol("WM_DELETE_WINDOW", on_closing)
 
+# Устанавливаем размеры окна (например, 400x300)
+window_width = 800
+window_height = 900
 
-# Центрирование окна на экране
-root.update_idletasks()
+# Получаем размеры экрана
 screen_width = root.winfo_screenwidth()
 screen_height = root.winfo_screenheight()
-x = (screen_width - root.winfo_reqwidth()) // 2
-y = (screen_height - root.winfo_reqheight()) // 2
+# Находим точку середины экрана
+screen_center_x = screen_width // 2
+screen_center_y = screen_height // 2
+# Находим точку середины окна
+window_center_x = window_width // 2
+window_center_y = window_height // 2
+# Вычисляем координаты верхнего левого угла, чтобы окно было по центру экрана
+x = screen_center_x - window_center_x
+y = screen_center_y - window_center_y
+# Устанавливаем положение окна
+root.geometry(f'{window_width}x{window_height}+{x}+{y}')
+
+
+
 
 # Создание верхней рамки
 frame_top = tk.Frame(root)
