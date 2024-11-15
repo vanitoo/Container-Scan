@@ -3,10 +3,10 @@ name: Build and Release .exe
 on:
   push:
     branches:
-      - main  # или ваша основная ветка
+      - master
   pull_request:
     branches:
-      - main  # или ваша основная ветка
+      - master
 
 jobs:
   build:
@@ -19,7 +19,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.8'  # Укажите нужную версию Python
+        python-version: '3.10'
 
     - name: Install dependencies
       run: |
