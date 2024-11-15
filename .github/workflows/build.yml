@@ -38,22 +38,62 @@ jobs:
         path: dist/main.exe  # Путь к скомпилированному .exe файлу
 
 
-
-
     - name: Create GitHub Release
       id: create_release
       run: |
-        #$RELEASE_TAG = git describe --tags --abbrev=0 2>$null
-        $RELEASE_TAG = "v" + (Get-Date -Format "yyyyMMddHHmmss")
+        # Получение текущего тега релиза
+        $RELEASE_TAG = git describe --tags --abbrev=0 2>$null
+        
         if ($RELEASE_TAG) {
             Write-Host "Existing tag found: $RELEASE_TAG"
         } else {
             Write-Host "No existing tag found. Creating a new tag."
-            $RELEASE_TAG = "v1.0.0"
-            git tag $RELEASE_TAG
-            git push origin $RELEASE_TAG --force
+            $RELEASE_TAG = "v1.0.0"  # Если тега нет, начинаем с v1.0.0
         }
-        gh release create $RELEASE_TAG dist/main.exe --title "Release $RELEASE_TAG" --notes "Release notes for $RELEASE_TAG"
+        
+        # Разбиваем текущий тег на части
+        $version_parts = $RELEASE_TAG.Substring(1).Split(".")
+        $major = [int]$version_parts[0]
+        $minor = [int]$version_parts[1]
+        $patch = [int]$version_parts[2]
+        
+        # Логика увеличения версии
+        $patch++
+        if ($patch -ge 10) {
+            $patch = 0
+            $minor++
+            if ($minor -ge 10) {
+                $minor = 0
+                $major++
+            }
+        }
+        
+        # Формируем новый тег версии
+        $new_release_tag = "v$major.$minor.$patch"
+        Write-Host "New version: $new_release_tag"
+        
+        # Создание нового тега в Git и его пуш
+        git tag $new_release_tag
+        git push origin $new_release_tag
+        
+        # Создание релиза на GitHub
+        gh release create $new_release_tag dist/main.exe --title "Release $new_release_tag" --notes "Release notes for $new_release_tag"
+
+#        #$RELEASE_TAG = git describe --tags --abbrev=0 2>$null
+#        $RELEASE_TAG = "v" + (Get-Date -Format "yyyyMMddHHmmss")
+#        if ($RELEASE_TAG) {
+#            Write-Host "Existing tag found: $RELEASE_TAG"
+#        } else {
+#            Write-Host "No existing tag found. Creating a new tag."
+#            $RELEASE_TAG = "v1.0.0"
+#            git tag $RELEASE_TAG
+#            git push origin $RELEASE_TAG --force
+#        }
+#        gh release create $RELEASE_TAG dist/main.exe --title "Release $RELEASE_TAG" --notes "Release notes for $RELEASE_TAG"
       shell: pwsh
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+
+

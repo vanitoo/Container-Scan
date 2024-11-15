@@ -28,6 +28,7 @@ rect_id = None
 scale_percent = 100  # Масштаб для обработки координат
 ENV_FILE = '.env'
 default_params = {'x1': 27,'y1': 297,'x2': 81,'y2': 318}
+text_output = None
 
 
 # Функция для чтения параметров из .env файла

@@ -30,6 +30,8 @@ jobs:
       run: |  
         git config --global user.name 'github-actions'
         git config --global user.email 'github-actions@github.com'
+        git status
         git add CHANGELOG.md
+        git status
         git commit -m "Обновление CHANGELOG.md"
         git push https://github.com/${{ github.repository }}.git HEAD:master  
