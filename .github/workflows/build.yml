@@ -43,13 +43,14 @@ jobs:
     - name: Create GitHub Release
       id: create_release
       run: |
-        if (git describe --tags --abbrev=0 2>/dev/null) {
-          RELEASE_TAG=$(git describe --tags --abbrev=0)
+        $RELEASE_TAG = git describe --tags --abbrev=0 -ErrorAction SilentlyContinue
+        if ($RELEASE_TAG) {
+            Write-Host "Existing tag found: $RELEASE_TAG"
         } else {
-          # Создаем новый тег, если тегов нет (используем простую схему версий)
-          RELEASE_TAG="v1.0.0"
-          git tag $RELEASE_TAG
-          git push origin $RELEASE_TAG
+            Write-Host "No existing tag found. Creating a new tag."
+            $RELEASE_TAG = "v1.0.0"
+            git tag $RELEASE_TAG
+            git push origin $RELEASE_TAG
         }
         gh release create $RELEASE_TAG dist/main.exe --title "Release $RELEASE_TAG" --notes "Release notes for $RELEASE_TAG"
       shell: pwsh
