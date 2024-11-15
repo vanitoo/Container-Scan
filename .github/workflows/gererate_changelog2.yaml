@@ -1,0 +1,30 @@
+name: Generate Changelog2
+
+on:
+  push:
+    branches:
+      - master
+
+
+jobs:
+  update-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Configure git
+        run: |
+          git config --global user.name 'github-actions'
+          git config --global user.email 'github-actions@github.com'
+
+      - name: Check if there are changes to commit
+        run: |
+          git status
+          git add CHANGELOG.md
+          git status
+
+      - name: Commit and push changes
+        run: |
+          git commit -m "Обновление CHANGELOG.md" || echo "No changes to commit"
+          git push https://github.com/vanitoo/pythonProject-OpenCV-PDF.git HEAD:master
