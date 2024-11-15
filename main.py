@@ -30,7 +30,6 @@ ENV_FILE = '.env'
 default_params = {'x1': 27,'y1': 297,'x2': 81,'y2': 318}
 
 
-
 # Функция для чтения параметров из .env файла
 def read_env() -> object:
     global x_start, y_start, x_end, y_end
