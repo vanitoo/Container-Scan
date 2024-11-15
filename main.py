@@ -39,7 +39,7 @@ def check_and_create_env():
 
 
 # Функция для чтения параметров из .env файла
-def read_env():
+def read_env() -> object:
     global x_start, y_start, x_end, y_end
     load_dotenv(ENV_FILE)
     # Загрузка значений из .env в одноименные переменные
