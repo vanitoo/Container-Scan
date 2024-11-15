@@ -43,7 +43,8 @@ jobs:
     - name: Create GitHub Release
       id: create_release
       run: |
-        $RELEASE_TAG = git describe --tags --abbrev=0 2>$null
+        #$RELEASE_TAG = git describe --tags --abbrev=0 2>$null
+        $RELEASE_TAG = "v" + (Get-Date -Format "yyyyMMddHHmmss")
         if ($RELEASE_TAG) {
             Write-Host "Existing tag found: $RELEASE_TAG"
         } else {
