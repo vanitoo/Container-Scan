@@ -30,13 +30,6 @@ ENV_FILE = '.env'
 default_params = {'x1': 27,'y1': 297,'x2': 81,'y2': 318}
 
 
-# Функция для проверки и создания .env файла с параметрами по умолчанию
-def check_and_create_env():
-    if not os.path.exists(ENV_FILE):
-        with open(ENV_FILE, 'w') as file:
-            for key, value in DEFAULT_COORDINATES2.items():
-                file.write(f'{key}={value}\n')
-
 
 # Функция для чтения параметров из .env файла
 def read_env() -> object:
@@ -87,7 +80,7 @@ def create_output_directory(input_file_path):
 
 
 def draw_selection():
-    global rect_id, x_start, y_start, x_end, y_end
+    global rect_id, x_start, y_start, x_end, y_end, canvas2, cropped_image
 
     # Удаляем предыдущий прямоугольник, если он был нарисован
     if rect_id:
@@ -113,21 +106,29 @@ def draw_selection():
 
 # Функция для выбора файла PDF
 def select_pdf():
-    global pdf_path, current_page, pdf
-    try:
-        pdf_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
-        if pdf_path:
-            entry_pdf_path.delete(0, tk.END)
-            entry_pdf_path.insert(0, pdf_path)
-            current_page = 0
-            load_page()
-    except Exception as e:
-        messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
+    global pdf_path, current_page, pdf, entry_pdf_path
+    pdf_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
+    if pdf_path:
+        entry_pdf_path.delete(0, tk.END)
+        entry_pdf_path.insert(0, pdf_path)
+        current_page = 0
+        load_page()
+
+
+    #try:
+    #    pdf_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
+    #    if pdf_path:
+    #        entry_pdf_path.delete(0, tk.END)
+    #        entry_pdf_path.insert(0, pdf_path)
+    #        current_page = 0
+    #        load_page()
+    #except Exception as e:
+    #    messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
 
 
 # Функция загрузки и отображения страницы PDF
 def load_page():
-    global image_display, pdf, current_page, page_image, scale_factor, page_width2, page_height2
+    global image_display, pdf, current_page, page_image, scale_factor, page_width2, page_height2, canvas, label_page_number, label_page_size, label_scale
     if not pdf_path:
         return
     try:
@@ -232,7 +233,7 @@ def draw_rectangle(event):
 
 
 def finish_coordinates(event):
-    global x_start, y_start, x_end, y_end, cropped_image_display, cropped_image
+    global x_start, y_start, x_end, y_end, cropped_image_display, cropped_image, canvas2, label_coordinates
     x_end, y_end = event.x, event.y
 
     label_coordinates.configure(text=f"Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})")
@@ -254,13 +255,13 @@ def finish_coordinates(event):
 
 # Функция обновления метки координат
 def update_coordinates_label():
-    global x_start, y_start, x_end, y_end
+    global x_start, y_start, x_end, y_end, label_coordinates
     if x_start is not None and y_start is not None and x_end is not None and y_end is not None:
         label_coordinates.config(
             text=f"Координаты: x={x_start}, y={y_start}, width={x_end - x_start}, height={y_end - y_start}")
 
 def update_coordinates_entry():
-    global x_start, y_start, x_end, y_end
+    global x_start, y_start, x_end, y_end, coordinates_entry
     if x_start is not None and y_start is not None and x_end is not None and y_end is not None:
         coordinates_text = f"{x_start},{y_start},{x_end},{y_end}"
         coordinates_entry.delete(0, tk.END)
@@ -304,7 +305,7 @@ def start_recognition_thread():
     threading.Thread(target=start_recognition, daemon=True).start()
 
 def start_recognition():
-    global pdf_path, x_start, y_start, x_end, y_end
+    global pdf_path, x_start, y_start, x_end, y_end, canvas2, cropped_image
 
     if not pdf_path:
         messagebox.showerror("Ошибка", "Пожалуйста, выберите PDF файл.")
@@ -384,7 +385,7 @@ def start_recognition():
 
 
 def check_image():
-    global x_start, y_start, x_end, y_end, current_page, pdf_path
+    global x_start, y_start, x_end, y_end, current_page, pdf_path, canvas2, text_output
 
     # Проверка на наличие пути к PDF
     if not pdf_path:
@@ -474,7 +475,7 @@ def zoom_out():
 
 
 # Функция для обновления поля с дефолтными координатами
-def set_default_coordinates():
+def set_default_coordinates(coordinates_entry):
     coordinates_text = f"{DEFAULT_COORDINATES2['x_start']},{DEFAULT_COORDINATES2['y_start']},{DEFAULT_COORDINATES2['x_end']},{DEFAULT_COORDINATES2['y_end']}"
     #coordinates_text = f"{DEFAULT_COORDINATES[0]},{DEFAULT_COORDINATES[1]},{DEFAULT_COORDINATES[2]},{DEFAULT_COORDINATES[3]}"
     coordinates_entry.delete(0, tk.END)
@@ -505,7 +506,7 @@ def zoom_canvas(event):
 
 
 def zoom_canvas2(event):
-    global canvas2_scale, cropped_image, cropped_image_display, page_image
+    global canvas2_scale, cropped_image, cropped_image_display, page_image, canvas2, canvas2_scale
     zoom_factor = 1.1 if event.delta > 0 else 0.9  # Увеличение или уменьшение масштаба
     canvas2_scale *= zoom_factor
 
@@ -522,7 +523,7 @@ def zoom_canvas2(event):
 
 
 def update_coordinates(event):
-    global x_start, y_start, x_end, y_end
+    global x_start, y_start, x_end, y_end, coordinates_entry
     try:
         # Получаем текст из поля и разбиваем его на координаты
         coordinates = coordinates_entry.get().split(',')
@@ -549,9 +550,12 @@ def save_env(x_start, y_start, x_end, y_end):
 
 # Обработчик выхода
 def on_closing():
-    global x_start, y_start, x_end, y_end
-    save_env(x_start, y_start, x_end, y_end)
-    root.destroy()
+    global root, x_start, y_start, x_end, y_end
+    if root is not None:  # Проверяем, что окно еще существует
+        save_env(x_start, y_start, x_end, y_end)
+        root.destroy()  # Закрыть главное окно
+
+
 
 class TextRedirector:
     def __init__(self, widget):
@@ -566,135 +570,141 @@ class TextRedirector:
 
 
 
-# Создание интерфейса
-root = tk.Tk()
-root.title("Распознавание текста из PDF")
-root.protocol("WM_DELETE_WINDOW", on_closing)
+def create_interface():
+    global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry, canvas2, canvas2_scale, label_coordinates, text_output
+    # Создание интерфейса
+    root = tk.Tk()
+    root.title("Распознавание текста из PDF")
+    root.protocol("WM_DELETE_WINDOW", on_closing)
 
-# Устанавливаем размеры окна (например, 400x300)
-window_width = 800
-window_height = 900
+    # Устанавливаем размеры окна (например, 400x300)
+    window_width = 800
+    window_height = 900
 
-# Получаем размеры экрана
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-# Находим точку середины экрана
-screen_center_x = screen_width // 2
-screen_center_y = screen_height // 2
-# Находим точку середины окна
-window_center_x = window_width // 2
-window_center_y = window_height // 2
-# Вычисляем координаты верхнего левого угла, чтобы окно было по центру экрана
-x = screen_center_x - window_center_x
-y = screen_center_y - window_center_y
-# Устанавливаем положение окна
-root.geometry(f'{window_width}x{window_height}+{x}+{y}')
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    screen_center_x = screen_width // 2
+    screen_center_y = screen_height // 2
+    window_center_x = window_width // 2
+    window_center_y = window_height // 2
+    x = screen_center_x - window_center_x
+    y = screen_center_y - window_center_y
+    root.geometry(f'{window_width}x{window_height}+{x}+{y}')
 
 
+    # Создание верхней рамки
+    frame_top = tk.Frame(root)
+    frame_top.pack(pady=10, padx=10, fill="x")
+
+    button_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf)
+    button_select_pdf.grid(row=0, column=0, padx=5, pady=5)
+
+    entry_pdf_path = tk.Entry(frame_top, width=50)
+    entry_pdf_path.grid(row=0, column=1, padx=5, pady=5)
+
+    button_start_recognition = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread)
+    button_start_recognition.grid(row=0, column=2, padx=5, pady=5)
+
+    button_check_image = tk.Button(frame_top, text="Проверка", command=check_image)
+    button_check_image.grid(row=0, column=3, padx=5, pady=5)
 
 
-# Создание верхней рамки
-frame_top = tk.Frame(root)
-frame_top.pack(pady=10, padx=10, fill="x")
+    # Создание рамки для элементов управления навигацией
+    frame_controls = tk.Frame(root)
+    frame_controls.pack(pady=5, padx=10, fill="x")
 
-button_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf)
-button_select_pdf.grid(row=0, column=0, padx=5, pady=5)
+    button_prev_page = tk.Button(frame_controls, text="Предыдущая страница", command=prev_page)
+    button_prev_page.grid(row=0, column=0, padx=5, pady=5)
 
-entry_pdf_path = tk.Entry(frame_top, width=50)
-entry_pdf_path.grid(row=0, column=1, padx=5, pady=5)
+    button_next_page = tk.Button(frame_controls, text="Следующая страница", command=next_page)
+    button_next_page.grid(row=0, column=1, padx=5, pady=5)
 
-button_start_recognition = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread)
-button_start_recognition.grid(row=0, column=2, padx=5, pady=5)
+    button_zoom_out = tk.Button(frame_controls, text="-10%", command=zoom_out)
+    button_zoom_out.grid(row=0, column=2, padx=5, pady=5)
 
-button_check_image = tk.Button(frame_top, text="Проверка", command=check_image)
-button_check_image.grid(row=0, column=3, padx=5, pady=5)
+    button_zoom_in = tk.Button(frame_controls, text="+10%", command=zoom_in)
+    button_zoom_in.grid(row=0, column=3, padx=5, pady=5)
 
-# Создание рамки для элементов управления навигацией
-frame_controls = tk.Frame(root)
-frame_controls.pack(pady=5, padx=10, fill="x")
+    label_page_number = tk.Label(frame_controls, text="Страница: -/-")
+    label_page_number.grid(row=0, column=4, padx=5, pady=5)
 
-button_prev_page = tk.Button(frame_controls, text="Предыдущая страница", command=prev_page)
-button_prev_page.grid(row=0, column=0, padx=5, pady=5)
 
-button_next_page = tk.Button(frame_controls, text="Следующая страница", command=next_page)
-button_next_page.grid(row=0, column=1, padx=5, pady=5)
+    # Новая рамка для поля "Page Size" и "Scale"
+    frame_settings = tk.Frame(root)
+    frame_settings.pack(pady=10, padx=10, fill="x")
 
-button_zoom_out = tk.Button(frame_controls, text="-10%", command=zoom_out)
-button_zoom_out.grid(row=0, column=2, padx=5, pady=5)
+    # Label и поле для выбора "Page Size"
+    label_page_size = tk.Label(frame_settings, text="Page Size")
+    label_page_size.grid(row=0, column=0, padx=5, pady=5)
 
-button_zoom_in = tk.Button(frame_controls, text="+10%", command=zoom_in)
-button_zoom_in.grid(row=0, column=3, padx=5, pady=5)
+    page_size_entry = tk.Entry(frame_settings, width=10)
+    page_size_entry.grid(row=0, column=1, padx=5, pady=5)
 
-label_page_number = tk.Label(frame_controls, text="Страница: -/-")
-label_page_number.grid(row=0, column=4, padx=5, pady=5)
+    # Label и поле для выбора "Scale"
+    label_scale = tk.Label(frame_settings, text="Scale")
+    label_scale.grid(row=0, column=2, padx=5, pady=5)
 
-# Новая рамка для поля "Page Size" и "Scale"
-frame_settings = tk.Frame(root)
-frame_settings.pack(pady=10, padx=10, fill="x")
+    scale_entry = tk.Entry(frame_settings, width=10)
+    scale_entry.grid(row=0, column=3, padx=5, pady=5)
 
-# Label и поле для выбора "Page Size"
-label_page_size = tk.Label(frame_settings, text="Page Size")
-label_page_size.grid(row=0, column=0, padx=5, pady=5)
 
-page_size_entry = tk.Entry(frame_settings, width=10)
-page_size_entry.grid(row=0, column=1, padx=5, pady=5)
+    # Создание фрейма для координат и поля ввода
+    frame_coordinates = tk.Frame(root)
+    frame_coordinates.pack(pady=5, padx=10, fill="x")
 
-# Label и поле для выбора "Scale"
-label_scale = tk.Label(frame_settings, text="Scale")
-label_scale.grid(row=0, column=2, padx=5, pady=5)
+    coordinates_entry = tk.Entry(frame_coordinates, width=50)
+    coordinates_entry.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+    coordinates_entry.bind("<KeyRelease>", update_coordinates)
 
-scale_entry = tk.Entry(frame_settings, width=10)
-scale_entry.grid(row=0, column=3, padx=5, pady=5)
+    label_coordinates = tk.Label(frame_coordinates, text="Координаты: -")
+    label_coordinates.grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
-# Создание фрейма для координат и поля ввода
-frame_coordinates = tk.Frame(root)
-frame_coordinates.pack(pady=5, padx=10, fill="x")
 
-coordinates_entry = tk.Entry(frame_coordinates, width=50)
-coordinates_entry.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+    # Создание холстов
+    frame_canvases = tk.Frame(root)
+    frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
 
-# Привязываем обработчик к полю ввода
-coordinates_entry.bind("<KeyRelease>", update_coordinates)
+    canvas_width = 750 // 2
+    canvas_height = 500
 
-label_coordinates = tk.Label(frame_coordinates, text="Координаты: -")
-label_coordinates.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+    canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+    canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
 
-set_default_coordinates()
+    canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+    canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
 
-# Создание холстов
-frame_canvases = tk.Frame(root)
-frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
+    canvas.bind("<Button-1>", define_coordinates)
+    canvas.bind("<B1-Motion>", draw_rectangle)
+    canvas.bind("<ButtonRelease-1>", finish_coordinates)
 
-canvas_width = 750 // 2
-canvas_height = 500
+    # Масштаб
+    canvas_scale = 1.0
+    canvas2_scale = 1.0
 
-canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
-canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
+    canvas2.bind("<MouseWheel>", zoom_canvas2)
 
-canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
-canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
+    text_output = scrolledtext.ScrolledText(root, width=100, height=10)
+    text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
+    text_output.config(state='normal')
+    sys.stdout = TextRedirector(text_output)
 
-canvas.bind("<Button-1>", define_coordinates)
-canvas.bind("<B1-Motion>", draw_rectangle)
-canvas.bind("<ButtonRelease-1>", finish_coordinates)
+    set_default_coordinates(coordinates_entry)
 
-# Масштаб
-canvas_scale = 1.0
-canvas2_scale = 1.0
 
-canvas2.bind("<MouseWheel>", zoom_canvas2)
 
-text_output = scrolledtext.ScrolledText(root, width=100, height=10)
-text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
+def main():
+    """Основная функция для запуска приложения."""
+    try:
+        set_tesseract_path()
+        read_env()
+        create_interface()  # Вызов функции для создания интерфейса
+        root.mainloop()  # Запуск цикла обработки событий
+    except KeyboardInterrupt:
+        print("Программа завершена пользователем.")
+        root.quit()  # Завершаем работу Tkinter, если прервано вручную
 
-text_output.config(state='normal')
 
-sys.stdout = TextRedirector(text_output)
 
-set_tesseract_path()
-# Инициализация приложения
-#check_and_create_env()
-params = read_env()
-
-print(x_start, y_start, x_end, y_end)
-root.mainloop()
+# Запуск программы
+if __name__ == "__main__":
+    main()
