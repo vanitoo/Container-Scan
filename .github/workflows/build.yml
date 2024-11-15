@@ -32,7 +32,7 @@ jobs:
         pyinstaller --onefile --windowed --clean --strip main.py
 
     - name: Upload .exe artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: main.exe  # Название артефакта
         path: dist/main.exe  # Путь к скомпилированному .exe файлу
