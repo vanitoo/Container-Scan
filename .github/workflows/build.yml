@@ -72,6 +72,26 @@ jobs:
         $new_release_tag = "v$major.$minor.$patch"
         Write-Host "New version: $new_release_tag"
         
+        # Проверка наличия тега в удаленном репозитории
+        $existing_tags = git tag -l
+        if ($existing_tags -contains $new_release_tag) {
+            Write-Host "Tag $new_release_tag already exists. Incrementing patch version."
+            
+            # Логика увеличения версии, если тег уже существует
+            $patch++
+            if ($patch -ge 10) {
+                $patch = 0
+                $minor++
+                if ($minor -ge 10) {
+                    $minor = 0
+                    $major++
+                }
+            }
+            
+            $new_release_tag = "v$major.$minor.$patch"
+            Write-Host "New version: $new_release_tag"
+        }
+        
         # Создание нового тега в Git и его пуш
         git tag $new_release_tag
         git push origin $new_release_tag
