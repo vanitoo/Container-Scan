@@ -5,6 +5,10 @@ Changelog
 
 - Еще одна правка generate_changelog_release.yaml
 
+### Test
+
+- Тестирование авто chahgelog
+
 ## [1.0.5] - 2024-11-16
 
 ### Fix
