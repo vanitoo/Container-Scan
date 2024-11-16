@@ -3,7 +3,7 @@ name: Generate Changelog2
 on:
   push:
     branches:
-      - master
+      - master2
 
 
 jobs:
@@ -12,17 +12,32 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+
+      # Шаг для генерации файла CHANGELOG.md
+      - name: Generate a changelog
+        uses: orhun/git-cliff-action@v3
+        with:
+          config: cliff.toml
+          args: --verbose
+        env:
+          OUTPUT: CHANGELOG.md
+
 
       - name: Configure git
         run: |
           git config --global user.name 'github-actions'
           git config --global user.email 'github-actions@github.com'
 
+
       - name: Check if there are changes to commit
         run: |
           git status
           git add CHANGELOG.md
           git status
+
 
       - name: Commit and push changes
         run: |
