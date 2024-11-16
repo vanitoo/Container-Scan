@@ -70,14 +70,13 @@ jobs:
         
         # Формируем новый тег версии
         $new_release_tag = "v$major.$minor.$patch"
-        Write-Host "New version: $new_release_tag"
+        Write-Host "Initial new version: $new_release_tag"
         
-        # Проверка наличия тега в удаленном репозитории
-        $existing_tags = git tag -l
-        if ($existing_tags -contains $new_release_tag) {
-            Write-Host "Tag $new_release_tag already exists. Incrementing patch version."
-            
-            # Логика увеличения версии, если тег уже существует
+        # Проверка наличия тега на удаленном репозитории и инкрементирование до уникального
+        $existing_tags = git ls-remote --tags origin | ForEach-Object { $_ -replace '.*/(v\d+\.\d+\.\d+)$', '$1' }
+        
+        while ($existing_tags -contains $new_release_tag) {
+            Write-Host "Tag $new_release_tag already exists on the remote. Incrementing patch version."
             $patch++
             if ($patch -ge 10) {
                 $patch = 0
@@ -87,9 +86,8 @@ jobs:
                     $major++
                 }
             }
-            
             $new_release_tag = "v$major.$minor.$patch"
-            Write-Host "New version: $new_release_tag"
+            Write-Host "New incremented version: $new_release_tag"
         }
         
         # Создание нового тега в Git и его пуш
