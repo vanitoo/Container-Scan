@@ -1,0 +1,30 @@
+# cliff.toml configuration file
+
+[changelog]
+header = "Changelog"
+description = "Все заметные изменения в этом проекте документируются в этом файле."
+footer = """
+_Этот changelog был сгенерирован автоматически с использованием [git-cliff](https://github.com/orhun/git-cliff)._"""
+
+[git]
+# Включаем коммиты только определенных типов (например, с определенными префиксами)
+filter = { include = ["feat", "fix", "chore", "docs", "refactor", "test"] }
+
+[template]
+# Шаблон для генерации changelog
+commit_message = """
+- {{ .type | upper }}: {{ .message }} ({{ .hash }})
+"""
+
+# Группировка коммитов по типу
+group_by = "type"
+group_by_order = ["feat", "fix", "chore", "docs", "refactor", "test"]
+group_by_label = { feat = "Новые возможности", fix = "Исправления", chore = "Общие задачи", docs = "Документация", refactor = "Рефакторинг", test = "Тестирование" }
+
+[commit_types]
+feat = { title = "Новые возможности" }
+fix = { title = "Исправления" }
+chore = { title = "Общие задачи" }
+docs = { title = "Документация" }
+refactor = { title = "Рефакторинг" }
+test = { title = "Тестирование" }
