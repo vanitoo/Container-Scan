@@ -1,32 +1,19 @@
-# Название workflow, описывает его цель
 name: Generate Changelog Release
 
-
-# Указывает событие, при котором будет запускаться workflow
 on:
-  # Событие push в репозиторий
   push:
-    # Указывает, что workflow будет запускаться только при пушах в ветку main
     branches:
-      - master
-  # Событие создания релиза
+      - master2
   release:
     types: [created]
 
 
-# Определяет задачи, которые будут выполнены в рамках workflow
 jobs:
-  # Имя задачи, можно назвать по-другому, например, "update-changelog"
   build:
-    # Запуск задачи на последней версии Ubuntu
     runs-on: ubuntu-latest
-
-
-    # Шаги, которые необходимо выполнить в рамках задачи
     steps:
-      # Использование действия checkout для клонирования репозитория
-    - uses: actions/checkout@v2
-      # Выкачивание всей истории коммитов, необходимо для корректной работы многих инструментов генерации changelog
+    - name: Checkout code
+      uses: actions/checkout@v2
       with:
         fetch-depth: 0
 
