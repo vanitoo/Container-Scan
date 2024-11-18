@@ -1,15 +1,19 @@
+#import cProfile
 import logging
 import os
 import re
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
+
 import cv2
 import fitz
 import numpy as np
 import pytesseract
-from PIL import Image, ImageTk
 from dotenv import load_dotenv, set_key
+from PIL import Image, ImageTk
+
+#from interface import create_interface
 
 
 # Глобальные переменные (лучше использовать класс для состояния)
@@ -725,8 +729,6 @@ def save_current_page():
             messagebox.showinfo("Успех", f"Страница сохранена как {output_file_name}")
     except Exception as e:
         logging.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
-
-
 
 def create_interface():
     global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
