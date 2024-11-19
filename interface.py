@@ -140,3 +140,51 @@ def create_interface():
 
     # Установка значений по умолчанию
     set_default_coordinates(coordinates_entry)
+
+
+###############
+
+
+
+
+
+
+
+
+
+
+
+    # Создание рамки для холстов
+    frame_canvases = tk.Frame(root)
+    frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
+
+    # Настройка холстов
+    canvas_width = 750 // 2
+    canvas_height = 500
+
+    # Группировка холстов в рамке
+    canvases = [
+        (tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey"), tk.LEFT),
+        (tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey"), tk.LEFT)
+    ]
+
+    for canvas, side in canvases:
+        canvas.pack(side=side, anchor=tk.N, padx=5, pady=10)
+
+    # Привязка событий к первому холсту
+    canvases[0][0].bind("<Button-1>", define_coordinates)
+    canvases[0][0].bind("<B1-Motion>", draw_rectangle)
+    canvases[0][0].bind("<ButtonRelease-1>", finish_coordinates)
+
+    # Масштаб для второго холста
+    canvas2_scale = 1.0
+    canvases[1][0].bind("<MouseWheel>", zoom_canvas2)
+
+    # Создание текстового поля для вывода
+    text_output = scrolledtext.ScrolledText(root, width=100, height=10)
+    text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
+    text_output.config(state='normal')
+    sys.stdout = TextRedirector(text_output)
+
+    # Установка начальных координат
+    set_default_coordinates(coordinates_entry)
