@@ -25,4 +25,4 @@ if not exist .venv\Lib\site-packages\installed (
 python main.py
 
 echo done
-
+pause

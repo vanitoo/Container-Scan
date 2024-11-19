@@ -1,3 +1,4 @@
+import sys
 import logging
 import os
 import re
@@ -5,7 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext
 import cv2
-import fitz
+import fitz  # PyMuPDF
 import numpy as np
 import pytesseract
 from PIL import Image, ImageTk
@@ -852,7 +853,7 @@ def create_interface():
     text_output = scrolledtext.ScrolledText(root, width=100, height=10)
     text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
     text_output.config(state='normal')
-    #sys.stdout = TextRedirector(text_output)
+    sys.stdout = TextRedirector(text_output)
 
     set_default_coordinates(coordinates_entry)
 
