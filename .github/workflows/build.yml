@@ -140,7 +140,7 @@ jobs:
         $distPath = "dist/main.exe"
         if (Test-Path $distPath) {
             # Создание релиза в другом репозитории с добавлением только main.exe
-            gh release create $RELEASE_TAG $distPath --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $RELEASE_TAG" --notes "Release notes for $RELEASE_TAG"
+            gh release create $RELEASE_TAG $distPath --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $RELEASE_TAG" --notes "Release notes for $RELEASE_TAG" --generate-notes
         } else {
             Write-Host "Error: File dist/main.exe not found."
             exit 1
