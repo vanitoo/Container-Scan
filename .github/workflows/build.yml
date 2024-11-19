@@ -31,6 +31,8 @@ jobs:
       run: |
         choco install mingw -y
         $env:PATH = "C:\ProgramData\chocolatey\bin;" + $env:PATH
+      shell: pwsh
+
 
     - name: Build .exe with PyInstaller
       run: |
@@ -118,5 +120,44 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 
+    - name: Create GitHub Release in another repository
+      run: |
+        # Получение текущего тега релиза
+        $RELEASE_TAG = git describe --tags --abbrev=0 2>$null
+
+        if ($RELEASE_TAG) {
+            Write-Host "Existing tag found: $RELEASE_TAG"
+        } else {
+            Write-Host "No existing tag found. Creating a new tag."
+            $RELEASE_TAG = "v1.0.0"  # Если тега нет, начинаем с v1.0.0
+        }
+
+        # Логика увеличения версии
+        $version_parts = $RELEASE_TAG.Substring(1).Split(".")
+        $major = [int]$version_parts[0]
+        $minor = [int]$version_parts[1]
+        $patch = [int]$version_parts[2]
+        
+        $patch++
+        if ($patch -ge 10) {
+            $patch = 0
+            $minor++
+            if ($minor -ge 10) {
+                $minor = 0
+                $major++
+            }
+        }
+
+        $new_release_tag = "v$major.$minor.$patch"
+        Write-Host "New release tag: $new_release_tag"
+
+        git tag $new_release_tag
+        git push origin $new_release_tag
+
+        # Создание релиза в другом репозитории
+        gh release create $new_release_tag dist/main.exe --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $new_release_tag" --notes "Release notes for $new_release_tag"
+      shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ secrets.TARGET_REPO_GITHUB_TOKEN }}
 
 
