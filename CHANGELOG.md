@@ -3,6 +3,12 @@ Changelog
 
 ### Fix
 
+- Переработал интерфейс
+
+## [1.0.6] - 2024-11-16
+
+### Fix
+
 - Еще одна правка generate_changelog_release.yaml
 
 ### Test
