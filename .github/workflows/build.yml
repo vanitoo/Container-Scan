@@ -154,8 +154,9 @@ jobs:
         git tag $new_release_tag
         git push origin $new_release_tag
 
-        # Создание релиза в другом репозитории
-        gh release create $new_release_tag dist/main.exe --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $new_release_tag" --notes "Release notes for $new_release_tag"
+        # Создание релиза в другом репозитории с добавлением только main.exe
+        gh release create $new_release_tag dist/main.exe --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $new_release_tag" --notes "Release notes for $new_release_tag" --assets "dist/main.exe"
+
       shell: pwsh
       env:
         GH_TOKEN: ${{ secrets.GH_TOKEN }}
