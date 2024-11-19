@@ -158,6 +158,7 @@ jobs:
         gh release create $new_release_tag dist/main.exe --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $new_release_tag" --notes "Release notes for $new_release_tag"
       shell: pwsh
       env:
-        GITHUB_TOKEN: ${{ secrets.TARGET_REPO_GITHUB_TOKEN }}
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+
 
 
