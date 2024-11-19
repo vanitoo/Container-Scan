@@ -13,6 +13,7 @@ from PIL import Image, ImageTk
 from dotenv import load_dotenv, set_key
 
 
+
 # Глобальные переменные (лучше использовать класс для состояния)
 DEFAULT_COORDINATES2 = {
     'x_start': 27,
