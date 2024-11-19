@@ -30,7 +30,7 @@ jobs:
     - name: Install MinGW for strip
       run: |
         choco install mingw -y
-        set PATH=C:\ProgramData\chocolatey\bin;%PATH%
+        $env:PATH = "C:\ProgramData\chocolatey\bin;" + $env:PATH
 
     - name: Build .exe with PyInstaller
       run: |
