@@ -11,7 +11,8 @@ import numpy as np
 import pytesseract
 from PIL import Image, ImageTk
 from dotenv import load_dotenv, set_key
-
+import requests
+from version import __version__  # Импортируем номер версии
 
 
 # Глобальные переменные (лучше использовать класс для состояния)
@@ -32,8 +33,6 @@ scale_percent = 100  # Масштаб для обработки координа
 ENV_FILE = '.env'
 text_output = None
 reader = None
-
-
 
 # Настройка логирования
 logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -736,7 +735,7 @@ def create_interface():
 
     # Создание интерфейса
     root = tk.Tk()
-    root.title("Распознавание текста из PDF")
+    root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
     # Устанавливаем размеры окна (например, 400x300)
@@ -860,6 +859,47 @@ def create_interface():
     set_default_coordinates(coordinates_entry)
 
 
+# Функция для проверки обновлений
+def check_for_updates():
+    # URL для получения информации о релизах
+    repo_url = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF-Build/releases/latest"
+
+    response = requests.get(repo_url)
+    if response.status_code == 200:
+        latest_release = response.json()
+        latest_version = latest_release['tag_name'].lstrip('v')  # Убираем префикс 'v'
+        download_url = latest_release['assets'][0]['browser_download_url']
+
+        # Сравниваем текущую версию с последней на GitHub
+        if compare_versions(__version__, latest_version):
+            text_output.delete(1.0, tk.END)
+            text_output.insert(tk.END, f"Появилась новая версия {latest_version}, рекомендуется обновиться\n")
+            text_output.insert(tk.END, download_url)
+        else:
+            text_output.delete(1.0, tk.END)
+            text_output.insert(tk.END, "У вас последняя версия.")
+
+
+
+# Функция для сравнения версий
+def compare_versions(current_version: str, latest_version: str) -> bool:
+    try:
+        current = tuple(map(int, current_version.split('.')))
+        latest = tuple(map(int, latest_version.split('.')))
+    except ValueError:
+        raise ValueError("Version numbers must contain only integers separated by dots")
+
+    # Compare component by component
+    for current_part, latest_part in zip(current, latest):
+        if current_part < latest_part:
+            return True
+        if current_part > latest_part:
+            return False
+
+    return len(current) < len(latest)
+
+
+
 
 def main():
     """Основная функция для запуска приложения."""
@@ -867,6 +907,7 @@ def main():
         set_tesseract_path()
         read_env()
         create_interface()  # Вызов функции для создания интерфейса
+        check_for_updates()
         root.mainloop()  # Запуск цикла обработки событий
     except KeyboardInterrupt:
         print("Программа завершена пользователем.")
