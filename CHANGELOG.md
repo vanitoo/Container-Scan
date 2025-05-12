@@ -4,6 +4,7 @@ Changelog
 ### Fix
 
 - Исправил функцию проверки версии
+- Actions/upload-artifact@v4
 
 ## [1.2.1] - 2024-11-19
 
