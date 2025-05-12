@@ -1,6 +1,12 @@
 Changelog
 ## [unreleased]
 
+### Refactor
+
+- Add ruff
+
+## [1.2.2] - 2025-05-12
+
 ### Fix
 
 - Исправил функцию проверки версии
