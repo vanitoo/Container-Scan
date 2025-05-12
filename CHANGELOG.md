@@ -3,6 +3,13 @@ Changelog
 
 ### Refactor
 
+- Add ruff 2
+- Add ruff 2
+
+## [1.2.4] - 2025-05-12
+
+### Refactor
+
 - Add ruff
 
 ## [1.2.3] - 2025-05-12
