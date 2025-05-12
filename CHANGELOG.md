@@ -5,6 +5,12 @@ Changelog
 
 - Add ruff
 
+## [1.2.3] - 2025-05-12
+
+### Refactor
+
+- Add ruff
+
 ## [1.2.2] - 2025-05-12
 
 ### Fix
