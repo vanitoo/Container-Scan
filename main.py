@@ -17,56 +17,68 @@ from version import __version__  # Импортируем номер верси�
 
 # Глобальные переменные (лучше использовать класс для состояния)
 DEFAULT_COORDINATES2 = {
-    'x_start': 27,
-    'y_start': 297,
-    'x_end': 81,
-    'y_end': 318,
-    'regex_pattern': '^[A-Z]{3}U\d{7}$'
+    "x_start": 27,
+    "y_start": 297,
+    "x_end": 81,
+    "y_end": 318,
+    "regex_pattern": "^[A-Z]{3}U\d{7}$",
 }
-#x_start, y_start, x_end, y_end = None, None, None, None
+# x_start, y_start, x_end, y_end = None, None, None, None
 current_page = 0
 pdf_path = None
 pdf = None
 image_display = None
 rect_id = None
 scale_percent = 100  # Масштаб для обработки координат
-ENV_FILE = '.env'
+ENV_FILE = ".env"
 text_output = None
 reader = None
 
 # Настройка логирования
-logging.basicConfig(filename='app.log', level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    filename="app.log",
+    level=logging.DEBUG,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
 
 def safe_execute(func):
     """Декоратор для оборачивания функций с обработкой ошибок и логированием."""
+
     def wrapper(*args, **kwargs):
         try:
             return func(*args, **kwargs)
         except Exception as e:
             logging.error(f"Ошибка в функции {func.__name__}: {e}", exc_info=True)
             messagebox.showerror("Ошибка", f"Произошла ошибка: {e}")
+
     return wrapper
+
 
 def set_tesseract_path():
     # Список возможных путей установки Tesseract
     possible_paths = [
-        r'C:\\Program Files\\Tesseract-OCR\\tesseract.exe',
-        r'C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe',
-        os.path.expanduser(r'~\\Tesseract-OCR\\tesseract.exe'),
-        os.path.expanduser(r'~\\AppData\\Local\\Tesseract-OCR\\tesseract.exe'),
-        os.path.expanduser(r'~\\AppData\\Local\\Programs\\Tesseract-OCR\\tesseract.exe')]
-        # Проверка пути в папке Programs
+        r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
+        r"C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe",
+        os.path.expanduser(r"~\\Tesseract-OCR\\tesseract.exe"),
+        os.path.expanduser(r"~\\AppData\\Local\\Tesseract-OCR\\tesseract.exe"),
+        os.path.expanduser(
+            r"~\\AppData\\Local\\Programs\\Tesseract-OCR\\tesseract.exe"
+        ),
+    ]
+    # Проверка пути в папке Programs
 
     # Проверка всех возможных путей
     for path in possible_paths:
         if os.path.exists(path):
             pytesseract.pytesseract.tesseract_cmd = path
-            #print(f"Путь для Tesseract установлен: {path}")
+            # print(f"Путь для Tesseract установлен: {path}")
             return
 
     # Если ни один путь не найден
     print("Tesseract не найден. Пожалуйста, установите его по ссылке:")
     print("https://github.com/UB-Mannheim/tesseract/wiki")
+
 
 # Функция для создания выходной папки
 def create_output_directory(input_file_path):
@@ -80,13 +92,16 @@ def create_output_directory(input_file_path):
         messagebox.showerror("Ошибка", f"Не удалось создать выходную папку: {e}")
         return None
 
+
 def draw_selection():
     global rect_id, x_start, y_start, x_end, y_end, canvas2, cropped_image
 
     # Удаляем предыдущий прямоугольник, если он был нарисован
     if rect_id:
         canvas.delete(rect_id)
-    rect_id = canvas.create_rectangle(x_start, y_start, x_end, y_end, outline="red", width=2)
+    rect_id = canvas.create_rectangle(
+        x_start, y_start, x_end, y_end, outline="red", width=2
+    )
 
     canvas.coords(rect_id, x_start, y_start, x_end, y_end)
     update_coordinates_entry()
@@ -101,6 +116,7 @@ def draw_selection():
         # Обновление ссылки для предотвращения сборки мусора
         canvas2.image = cropped_image_display
 
+
 # Функция для выбора файла PDF
 def select_pdf():
     global pdf_path, current_page, pdf, entry_pdf_path
@@ -111,21 +127,33 @@ def select_pdf():
         current_page = 0
         load_page()
 
-
-    #try:
+    # try:
     #    pdf_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
     #    if pdf_path:
     #        entry_pdf_path.delete(0, tk.END)
     #        entry_pdf_path.insert(0, pdf_path)
     #        current_page = 0
     #        load_page()
-    #except Exception as e:
+    # except Exception as e:
     #    messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
+
 
 # Функция загрузки и отображения страницы PDF
 @safe_execute
 def load_page():
-    global image_display, pdf, current_page, page_image, scale_factor, page_width2, page_height2, canvas, label_page_number, label_page_size, label_scale, total_pages
+    global \
+        image_display, \
+        pdf, \
+        current_page, \
+        page_image, \
+        scale_factor, \
+        page_width2, \
+        page_height2, \
+        canvas, \
+        label_page_number, \
+        label_page_size, \
+        label_scale, \
+        total_pages
     if not pdf_path:
         return
     try:
@@ -137,35 +165,32 @@ def load_page():
 
             Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-
             page_width2, page_height2 = page.rect.width, page.rect.height
-            print(f"Страница {current_page + 1}: размер {page_width2} x {page_height2} points")
-
+            print(
+                f"Страница {current_page + 1}: размер {page_width2} x {page_height2} points"
+            )
 
             ## Преобразование Pixmap в объект PIL Image
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             # Получаем размеры canvas и изображения
-            #canvas_width = canvas.winfo_width()
-            #canvas_height = canvas.winfo_height()
-            #img_width, img_height = img.size
+            # canvas_width = canvas.winfo_width()
+            # canvas_height = canvas.winfo_height()
+            # img_width, img_height = img.size
             # Рассчитываем коэффициент масштабирования, чтобы изображение вписалось в canvas
-            #scale = min(canvas_width / img_width, canvas_height / img_height)
-            #print(scale)
-            #new_width = int(img_width * scale)
-            #new_height = int(img_height * scale)
-            #print(new_width,new_height)
+            # scale = min(canvas_width / img_width, canvas_height / img_height)
+            # print(scale)
+            # new_width = int(img_width * scale)
+            # new_height = int(img_height * scale)
+            # print(new_width,new_height)
             # Масштабируем изображение
-            #img_resized = img.resize((new_width, new_height), Image.LANCZOS)
+            # img_resized = img.resize((new_width, new_height), Image.LANCZOS)
             # Преобразуем изображение в формат, совместимый с tkinter
-            #img_tk = ImageTk.PhotoImage(img_resized)
+            # img_tk = ImageTk.PhotoImage(img_resized)
             # Очищаем canvas и добавляем новое изображение
-            #canvas.delete("all")
-            #canvas.create_image((canvas_width - new_width) // 2, (canvas_height - new_height) // 2, anchor="nw",image=img_tk)
+            # canvas.delete("all")
+            # canvas.create_image((canvas_width - new_width) // 2, (canvas_height - new_height) // 2, anchor="nw",image=img_tk)
             # Сохраняем ссылку на изображение, чтобы избежать его удаления сборщиком мусора
-            #canvas.image = img_tk
-
-
-
+            # canvas.image = img_tk
 
             # Получение размеров холста
             canvas_height = canvas.winfo_height()
@@ -186,23 +211,25 @@ def load_page():
                 canvas.config(scrollregion=canvas.bbox(tk.ALL))
 
             # Обновление информации о текущей странице
-            #label_page_number.config(text=f"Страница: {current_page + 1}/{pdf.page_count}")
+            # label_page_number.config(text=f"Страница: {current_page + 1}/{pdf.page_count}")
             root.title(
-                f"Распознавание текста из PDF - Страница {current_page + 1}/{pdf.page_count} - Координаты: ")
+                f"Распознавание текста из PDF - Страница {current_page + 1}/{pdf.page_count} - Координаты: "
+            )
 
             # Обновление информации о размере страницы (Page Size)
             page_size_text = f"{pix.width}x{pix.height}"  # Размеры страницы в пикселях
-            #label_page_size.config(text=f"Page Size: {page_size_text}")
+            # label_page_size.config(text=f"Page Size: {page_size_text}")
             print(f"Page Size: {page_size_text}")
 
             # Обновление масштаба (Scale)
             scale_text = f"{round(scale_factor * 100)}%"  # Масштаб в процентах, округленный до целых
-            #label_scale.config(text=f"Scale: {scale_text}")
+            # label_scale.config(text=f"Scale: {scale_text}")
             print("Scale:", scale_text)
 
             draw_selection()
     except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось загрузить страницу: {e}")
+
 
 # Функция для выбора координат области
 def define_coordinates(event):
@@ -212,7 +239,7 @@ def define_coordinates(event):
     y_start = int(event.y)
     print(scale_factor)
     print(scale_percent)
-    print(event.x,event.y)
+    print(event.x, event.y)
     print(x_start, y_start)
 
     # Удаляем старое выделение, если оно есть
@@ -220,8 +247,11 @@ def define_coordinates(event):
         canvas.delete(rect_id)
 
     # Создаем новый прямоугольник, начальная точка
-    rect_id = canvas.create_rectangle(x_start, y_start, x_start, y_start, outline="red", width=2)
+    rect_id = canvas.create_rectangle(
+        x_start, y_start, x_start, y_start, outline="red", width=2
+    )
     update_coordinates_entry()
+
 
 def draw_rectangle(event):
     global rect_id, x_start, y_start
@@ -229,11 +259,21 @@ def draw_rectangle(event):
     if rect_id is not None:
         canvas.coords(rect_id, x_start, y_start, x_end, y_end)
 
+
 def finish_coordinates(event):
-    global x_start, y_start, x_end, y_end, cropped_image_display, cropped_image, canvas2, label_coordinates, total_pages
+    global \
+        x_start, \
+        y_start, \
+        x_end, \
+        y_end, \
+        cropped_image_display, \
+        cropped_image, \
+        canvas2, \
+        label_coordinates, \
+        total_pages
     x_end, y_end = event.x, event.y
 
-#    label_coordinates.configure(text=f"Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})")
+    #    label_coordinates.configure(text=f"Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})")
 
     root.title(
         f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages} - Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})"
@@ -254,38 +294,52 @@ def finish_coordinates(event):
         # Обновление ссылки для предотвращения сборки мусора
         canvas2.image = cropped_image_display
 
+
 # Функция обновления метки координат
 def update_coordinates_label():
     global x_start, y_start, x_end, y_end, label_coordinates
-    if x_start is not None and y_start is not None and x_end is not None and y_end is not None:
+    if (
+        x_start is not None
+        and y_start is not None
+        and x_end is not None
+        and y_end is not None
+    ):
         label_coordinates.config(
-            text=f"Координаты: x={x_start}, y={y_start}, width={x_end - x_start}, height={y_end - y_start}")
+            text=f"Координаты: x={x_start}, y={y_start}, width={x_end - x_start}, height={y_end - y_start}"
+        )
+
 
 def update_coordinates_entry():
     global x_start, y_start, x_end, y_end, coordinates_entry
-    if x_start is not None and y_start is not None and x_end is not None and y_end is not None:
+    if (
+        x_start is not None
+        and y_start is not None
+        and x_end is not None
+        and y_end is not None
+    ):
         coordinates_text = f"{x_start},{y_start},{x_end},{y_end}"
         coordinates_entry.delete(0, tk.END)
         coordinates_entry.insert(0, coordinates_text)
+
 
 @safe_execute
 def format_extracted_text2(text, i):
     global regex_pattern, regex_pattern_entry
     regex_pattern = regex_pattern_entry.get()  # Получение шаблона из поля ввода
-    cleaned_text = re.sub(r'[^A-Za-z0-9]', '', text).upper()
+    cleaned_text = re.sub(r"[^A-Za-z0-9]", "", text).upper()
     if re.match(regex_pattern, cleaned_text):
         return cleaned_text
 
     # Ваш существующий код для обработки текста...
 
+
 # Функция для проверки и форматирования распознанного текста
 def format_extracted_text(text, i):
-
     # Удаление всех символов, кроме английских букв и цифр
-    cleaned_text = re.sub(r'[^A-Za-z0-9]', '', text).upper()
+    cleaned_text = re.sub(r"[^A-Za-z0-9]", "", text).upper()
 
     # Проверка формата: 4 буквы (в верхнем регистре) + 7 цифр
-    if re.match(r'^[A-Z]{4}\d{7}$', cleaned_text):
+    if re.match(r"^[A-Z]{4}\d{7}$", cleaned_text):
         return cleaned_text
 
     # Замена неправильных символов на '@'
@@ -301,7 +355,9 @@ def format_extracted_text(text, i):
             formatted_text += char
 
     # Проверка длины результата и обрезка лишнего
-    formatted_text = formatted_text[:11]  # Убедиться, что длина не превышает 11 символов
+    formatted_text = formatted_text[
+        :11
+    ]  # Убедиться, что длина не превышает 11 символов
 
     # Дополнение '@', если строка короче
     while len(formatted_text) < 11:
@@ -309,10 +365,14 @@ def format_extracted_text(text, i):
 
     return formatted_text
 
+
 # Функция для выполнения длительной задачи в потоке
 def start_recognition_thread():
     threading.Thread(target=start_recognition, daemon=True).start()
+
+
 #    start_task_with_progress(start_recognition)
+
 
 @safe_execute
 def start_recognition():
@@ -327,7 +387,9 @@ def start_recognition():
         messagebox.showerror("Ошибка", "Координаты не заданы.")
         return
 
-    print(f"Используемые координаты: x_start={x_start}, y_start={y_start}, x_end={x_end}, y_end={y_end}")
+    print(
+        f"Используемые координаты: x_start={x_start}, y_start={y_start}, x_end={x_end}, y_end={y_end}"
+    )
 
     # Создание выходной папки
     output_dir = create_output_directory(pdf_path)
@@ -342,12 +404,19 @@ def start_recognition():
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
             # Проверка координат на допустимость
-            if x_start < 0 or y_start < 0 or x_end > page_image.width or y_end > page_image.height:
-                messagebox.showerror("Ошибка", f"Координаты выходят за пределы страницы {i + 1}.")
+            if (
+                x_start < 0
+                or y_start < 0
+                or x_end > page_image.width
+                or y_end > page_image.height
+            ):
+                messagebox.showerror(
+                    "Ошибка", f"Координаты выходят за пределы страницы {i + 1}."
+                )
                 continue
 
-            #canvas.coords(rect_id, x_start, y_start, x_end, y_end)
-            #update_coordinates_entry()
+            # canvas.coords(rect_id, x_start, y_start, x_end, y_end)
+            # update_coordinates_entry()
 
             # Обратный коэффициент масштабирования
             inverse_scale_factor = 1 / scale_factor
@@ -357,9 +426,10 @@ def start_recognition():
             x_end_orig = int(x_end * inverse_scale_factor)
             y_end_orig = int(y_end * inverse_scale_factor)
 
-
-            cropped_image = page_image.crop((x_start_orig, y_start_orig, x_end_orig, y_end_orig))
-            #cropped_image = page_image.crop((x_start, y_start, x_end, y_end))
+            cropped_image = page_image.crop(
+                (x_start_orig, y_start_orig, x_end_orig, y_end_orig)
+            )
+            # cropped_image = page_image.crop((x_start, y_start, x_end, y_end))
 
             cropped_image_display = ImageTk.PhotoImage(image=cropped_image)
             canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
@@ -369,18 +439,21 @@ def start_recognition():
             open_cv_image = np.array(cropped_image)
             open_cv_image = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2BGR)
 
-            extracted_text = pytesseract.image_to_string(open_cv_image, lang='eng').strip()
+            extracted_text = pytesseract.image_to_string(
+                open_cv_image, lang="eng"
+            ).strip()
 
             # Форматирование распознанного текста
             formatted_text = format_extracted_text(extracted_text, i + 1)
-
 
             # Печать распознанного текста
             print(f"Страница {i + 1}:")
             print(f"Распознанный текст: {formatted_text}")
 
             # Сохранение распознанного текста в файл
-            with open(os.path.join(output_dir, f"{i + 1}_text.txt"), "w", encoding="utf-8") as f:
+            with open(
+                os.path.join(output_dir, f"{i + 1}_text.txt"), "w", encoding="utf-8"
+            ) as f:
                 f.write(extracted_text)
 
             # Сохранение области для сверки
@@ -394,6 +467,7 @@ def start_recognition():
             page_image.save(output_file_name)
             print(f"Страница сохранена как: {output_file_name}")
 
+
 def enhanced_recognition11(image):
     """Функция для расширенного распознавания текста с дополнительной обработкой."""
     # Применение фильтров и предобработки для улучшения качества изображения
@@ -403,12 +477,17 @@ def enhanced_recognition11(image):
     # Применение шумоподавления
     processed_image = cv2.medianBlur(thresh, 3)
     # Увеличение разрешения
-    processed_image = cv2.resize(processed_image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    processed_image = cv2.resize(
+        processed_image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC
+    )
 
     # Распознавание текста
-    extracted_text = pytesseract.image_to_string(processed_image, lang='eng', config='--oem 1 --psm 6').strip()
+    extracted_text = pytesseract.image_to_string(
+        processed_image, lang="eng", config="--oem 1 --psm 6"
+    ).strip()
 
     return extracted_text
+
 
 def enhanced_recognition12(image):
     """Расширенное распознавание с применением нескольких методов обработки."""
@@ -420,19 +499,35 @@ def enhanced_recognition12(image):
     enhanced_image = clahe.apply(thresh)
 
     # Увеличение разрешения
-    enhanced_image = cv2.resize(enhanced_image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+    enhanced_image = cv2.resize(
+        enhanced_image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC
+    )
 
-    extracted_text = pytesseract.image_to_string(enhanced_image, lang='eng', config='--oem 1 --psm 6').strip()
+    extracted_text = pytesseract.image_to_string(
+        enhanced_image, lang="eng", config="--oem 1 --psm 6"
+    ).strip()
     return extracted_text
+
 
 def run_ocr_in_thread(image, **kwargs):
     """Запуск OCR в отдельном потоке с передачей параметров."""
     threading.Thread(target=enhanced_recognition, args=(image,), kwargs=kwargs).start()
 
+
 @safe_execute
-def enhanced_recognition(image, use_grayscale=True, use_median_blur=True, use_thresholding=True,
-                         use_clahe=True, use_resize=True, use_deskew=True, use_noise_removal=True,
-                         use_morphological_ops=True, use_channel_extraction=False, channel='blue'):
+def enhanced_recognition(
+    image,
+    use_grayscale=True,
+    use_median_blur=True,
+    use_thresholding=True,
+    use_clahe=True,
+    use_resize=True,
+    use_deskew=True,
+    use_noise_removal=True,
+    use_morphological_ops=True,
+    use_channel_extraction=False,
+    channel="blue",
+):
     """Расширенная функция распознавания текста с поддержкой EasyOCR и настройками включения этапов обработки."""
 
     # Преобразование в оттенки серого
@@ -468,7 +563,9 @@ def enhanced_recognition(image, use_grayscale=True, use_median_blur=True, use_th
         (h, w) = image.shape[:2]
         center = (w // 2, h // 2)
         M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        image = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        image = cv2.warpAffine(
+            image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
+        )
 
     # Удаление шума с помощью морфологических операций
     if use_noise_removal:
@@ -482,19 +579,29 @@ def enhanced_recognition(image, use_grayscale=True, use_median_blur=True, use_th
 
     # Извлечение цветового канала (если включено)
     if use_channel_extraction:
-        if channel == 'blue':
+        if channel == "blue":
             image = image[:, :, 0]
-        elif channel == 'green':
+        elif channel == "green":
             image = image[:, :, 1]
-        elif channel == 'red':
+        elif channel == "red":
             image = image[:, :, 2]
 
-    extracted_text = pytesseract.image_to_string(image, lang='eng').strip()
+    extracted_text = pytesseract.image_to_string(image, lang="eng").strip()
 
     return extracted_text
 
+
 def check_image():
-    global x_start, y_start, x_end, y_end, current_page, pdf_path, canvas2, text_output, recognition_mode
+    global \
+        x_start, \
+        y_start, \
+        x_end, \
+        y_end, \
+        current_page, \
+        pdf_path, \
+        canvas2, \
+        text_output, \
+        recognition_mode
 
     # Проверка на наличие пути к PDF
     if not pdf_path:
@@ -527,7 +634,9 @@ def check_image():
             y_end_orig = int(y_end * inverse_scale_factor)
 
             # Обрезка изображения по выбранной области
-            cropped_image = page_image.crop((x_start_orig, y_start_orig, x_end_orig, y_end_orig))
+            cropped_image = page_image.crop(
+                (x_start_orig, y_start_orig, x_end_orig, y_end_orig)
+            )
 
             # Отображение обрезанного изображения на холсте canvas2 (если необходимо)
             cropped_image_display = ImageTk.PhotoImage(image=cropped_image)
@@ -538,26 +647,25 @@ def check_image():
             open_cv_image = np.array(cropped_image)
             open_cv_image = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2BGR)
 
-
             if recognition_mode.get() == 0:
                 # Обычное распознавание
-                extracted_text = pytesseract.image_to_string(open_cv_image, lang='eng').strip()
+                extracted_text = pytesseract.image_to_string(
+                    open_cv_image, lang="eng"
+                ).strip()
             else:
                 # Расширенное распознавание
                 extracted_text = enhanced_recognition11(open_cv_image)
-                #extracted_text = enhanced_recognition(open_cv_image, use_grayscale=False, use_median_blur=False, use_thresholding=False,
+                # extracted_text = enhanced_recognition(open_cv_image, use_grayscale=False, use_median_blur=False, use_thresholding=False,
                 #                        use_clahe=False, use_resize=False, use_deskew=False, use_noise_removal=False,
                 #                        use_morphological_ops=False, use_channel_extraction=False)
 
             #            formatted_text = format_extracted_text(extracted_text, i + 1)
-#            print(f"Страница {i + 1}: {formatted_text}")
-
+            #            print(f"Страница {i + 1}: {formatted_text}")
 
             # Форматирование распознанного текста
             formatted_text = format_extracted_text(extracted_text, current_page + 1)
             print(f"Страница {current_page + 1}: {formatted_text}")
-            print("Распознанное имя:",formatted_text)
-
+            print("Распознанное имя:", formatted_text)
 
             # Вывод распознанного текста в консоль
             print("Распознанный текст:")
@@ -567,13 +675,13 @@ def check_image():
             print(f"Расширенный режим распознавания {state}")
 
             # Обновление текстового поля (если используется)
-            #text_output.delete(1.0, "end")
-            #text_output.insert("end", extracted_text)
-
+            # text_output.delete(1.0, "end")
+            # text_output.insert("end", extracted_text)
 
     except Exception as e:
         logging.error(f"Ошибка при распознавании: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
+
 
 # Функция для перехода к следующей странице
 def next_page():
@@ -581,17 +689,20 @@ def next_page():
     current_page += 1
     load_page()
 
+
 # Функция для перехода к предыдущей странице
 def prev_page():
     global current_page
     current_page -= 1
     load_page()
 
+
 # Функция увеличения масштаба
 def zoom_in():
     global scale_percent
     scale_percent += 10  # Увеличиваем на 10%
     load_page()  # Перезагружаем страницу с новым масштабом
+
 
 # Функция уменьшения масштаба
 def zoom_out():
@@ -600,19 +711,22 @@ def zoom_out():
         scale_percent -= 10
         load_page()  # Перезагружаем страницу с новым масштабом
 
+
 # Функция для обновления поля с дефолтными координатами
 def set_default_coordinates(coordinates_entry):
     coordinates_text = f"{DEFAULT_COORDINATES2['x_start']},{DEFAULT_COORDINATES2['y_start']},{DEFAULT_COORDINATES2['x_end']},{DEFAULT_COORDINATES2['y_end']}"
-    #coordinates_text = f"{DEFAULT_COORDINATES[0]},{DEFAULT_COORDINATES[1]},{DEFAULT_COORDINATES[2]},{DEFAULT_COORDINATES[3]}"
+    # coordinates_text = f"{DEFAULT_COORDINATES[0]},{DEFAULT_COORDINATES[1]},{DEFAULT_COORDINATES[2]},{DEFAULT_COORDINATES[3]}"
     coordinates_entry.delete(0, tk.END)
     coordinates_entry.insert(0, coordinates_text)
 
+
 # Функция для проверки формата координат
 def validate_coordinates_format(coordinates_text):
-    parts = coordinates_text.split(',')
+    parts = coordinates_text.split(",")
     if len(parts) == 4 and all(part.isdigit() for part in parts):
         return True
     return False
+
 
 def zoom_canvas(event):
     global canvas_scale, cropped_image, cropped_image_display, page_image
@@ -628,10 +742,19 @@ def zoom_canvas(event):
         # Обновление отображаемого изображения
         cropped_image_display = ImageTk.PhotoImage(image=scaled_image)
         canvas.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-        canvas.image = cropped_image_display  # Сохранение ссылки для предотвращения сборки мусора
+        canvas.image = (
+            cropped_image_display  # Сохранение ссылки для предотвращения сборки мусора
+        )
+
 
 def zoom_canvas2(event):
-    global canvas2_scale, cropped_image, cropped_image_display, page_image, canvas2, canvas2_scale
+    global \
+        canvas2_scale, \
+        cropped_image, \
+        cropped_image_display, \
+        page_image, \
+        canvas2, \
+        canvas2_scale
     zoom_factor = 1.1 if event.delta > 0 else 0.9  # Увеличение или уменьшение масштаба
     canvas2_scale *= zoom_factor
 
@@ -644,18 +767,23 @@ def zoom_canvas2(event):
         # Обновление отображаемого изображения
         cropped_image_display = ImageTk.PhotoImage(image=scaled_image)
         canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-        canvas2.image = cropped_image_display  # Сохранение ссылки для предотвращения сборки мусора
+        canvas2.image = (
+            cropped_image_display  # Сохранение ссылки для предотвращения сборки мусора
+        )
+
 
 def update_coordinates(event):
     global x_start, y_start, x_end, y_end, coordinates_entry
     try:
         # Получаем текст из поля и разбиваем его на координаты
-        coordinates = coordinates_entry.get().split(',')
+        coordinates = coordinates_entry.get().split(",")
 
         # Проверяем, что получено 4 значения
         if len(coordinates) == 4:
             x_start, y_start, x_end, y_end = map(int, coordinates)
-            print(f"Обновленные координаты: x_start={x_start}, y_start={y_start}, x_end={x_end}, y_end={y_end}")
+            print(
+                f"Обновленные координаты: x_start={x_start}, y_start={y_start}, x_end={x_end}, y_end={y_end}"
+            )
             draw_selection()  # Предполагается, что функция draw_selection() используется для обновления графики
         else:
             print("Ошибка: Введите 4 координаты, разделенные запятыми")
@@ -663,27 +791,30 @@ def update_coordinates(event):
         # Игнорируем ошибку, если ввод некорректен
         print("Ошибка: Неверный формат координат")
 
+
 # Процедура записи параметров в файл .env
 def save_env(x_start, y_start, x_end, y_end, regex_pattern):
-    set_key(ENV_FILE, 'x_start', str(x_start))
-    set_key(ENV_FILE, 'y_start', str(y_start))
-    set_key(ENV_FILE, 'x_end', str(x_end))
-    set_key(ENV_FILE, 'y_end', str(y_end))
-    set_key(ENV_FILE, 'regex_pattern', str(regex_pattern))
-    #regex_pattern = regex_pattern_entry.get()  # Получение текущего шаблона
+    set_key(ENV_FILE, "x_start", str(x_start))
+    set_key(ENV_FILE, "y_start", str(y_start))
+    set_key(ENV_FILE, "x_end", str(x_end))
+    set_key(ENV_FILE, "y_end", str(y_end))
+    set_key(ENV_FILE, "regex_pattern", str(regex_pattern))
+    # regex_pattern = regex_pattern_entry.get()  # Получение текущего шаблона
+
 
 # Функция для чтения параметров из .env файла
 def read_env() -> object:
     global x_start, y_start, x_end, y_end, regex_pattern, regex_pattern_entry
     load_dotenv(ENV_FILE)
     # Загрузка значений из .env в одноименные переменные
-    x_start = int(os.getenv('x_start', DEFAULT_COORDINATES2['x_start']))
-    y_start = int(os.getenv('y_start', DEFAULT_COORDINATES2['y_start']))
-    x_end = int(os.getenv('x_end', DEFAULT_COORDINATES2['x_end']))
-    y_end = int(os.getenv('y_end', DEFAULT_COORDINATES2['y_end']))
-    regex_pattern = (os.getenv('regex_pattern', DEFAULT_COORDINATES2['regex_pattern']))
-    #regex_pattern_entry.insert(0, regex_pattern)  # Пример шаблона
+    x_start = int(os.getenv("x_start", DEFAULT_COORDINATES2["x_start"]))
+    y_start = int(os.getenv("y_start", DEFAULT_COORDINATES2["y_start"]))
+    x_end = int(os.getenv("x_end", DEFAULT_COORDINATES2["x_end"]))
+    y_end = int(os.getenv("y_end", DEFAULT_COORDINATES2["y_end"]))
+    regex_pattern = os.getenv("regex_pattern", DEFAULT_COORDINATES2["regex_pattern"])
+    # regex_pattern_entry.insert(0, regex_pattern)  # Пример шаблона
     print(x_start, y_start, x_end, y_end)
+
 
 # Обработчик выхода
 def on_closing():
@@ -691,6 +822,7 @@ def on_closing():
     if root is not None:  # Проверяем, что окно еще существует
         save_env(x_start, y_start, x_end, y_end, regex_pattern)
         root.destroy()  # Закрыть главное окно
+
 
 class TextRedirector:
     def __init__(self, widget):
@@ -702,6 +834,7 @@ class TextRedirector:
 
     def flush(self):
         pass  # Для совместимости с sys.stdout
+
 
 @safe_execute
 def save_current_page():
@@ -728,10 +861,22 @@ def save_current_page():
         logging.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
 
 
-
 def create_interface():
-    global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
-    global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
+    global \
+        root, \
+        entry_pdf_path, \
+        canvas, \
+        label_page_number, \
+        label_page_size, \
+        label_scale, \
+        coordinates_entry
+    global \
+        canvas2, \
+        canvas2_scale, \
+        label_coordinates, \
+        text_output, \
+        regex_pattern_entry, \
+        recognition_mode
 
     # Создание интерфейса
     root = tk.Tk()
@@ -745,8 +890,7 @@ def create_interface():
     screen_height = root.winfo_screenheight()
     x = (screen_width // 2) - (window_width // 2)
     y = (screen_height // 2) - (window_height // 2)
-    root.geometry(f'{window_width}x{window_height}+{x}+{y}')
-
+    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
     #################################################################
 
@@ -761,12 +905,19 @@ def create_interface():
     elements_top = [
         (tk.Button(frame_top, text="Выбрать PDF", command=select_pdf), 0, 0),
         (tk.Entry(frame_top, width=50), 0, 1),
-        (tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread), 0, 2)
+        (
+            tk.Button(
+                frame_top, text="Запуск распознавания", command=start_recognition_thread
+            ),
+            0,
+            2,
+        ),
     ]
     for element, row, col in elements_top:
         element.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
-    entry_pdf_path = elements_top[1][0]  # Привязка поля ввода для глобального использования
-
+    entry_pdf_path = elements_top[1][
+        0
+    ]  # Привязка поля ввода для глобального использования
 
     #################################################################
 
@@ -774,13 +925,29 @@ def create_interface():
     frame_navigation = tk.Frame(root)
     frame_navigation.pack(pady=5, padx=10, fill="x")
     elements_navigation = [
-        (tk.Button(frame_navigation, text="Предыдущая страница", command=prev_page), 0, 0),
-        (tk.Button(frame_navigation, text="Следующая страница", command=next_page), 0, 1),
+        (
+            tk.Button(frame_navigation, text="Предыдущая страница", command=prev_page),
+            0,
+            0,
+        ),
+        (
+            tk.Button(frame_navigation, text="Следующая страница", command=next_page),
+            0,
+            1,
+        ),
         (tk.Button(frame_navigation, text="-10%", command=zoom_out), 0, 2),
         (tk.Button(frame_navigation, text="+10%", command=zoom_in), 0, 3),
         (tk.Label(frame_navigation, text=" "), 0, 4),  # Разделитель между кнопками
-        (tk.Button(frame_navigation, text="Проверить", command=check_image),0,5),
-        (tk.Button(frame_navigation, text="Сохранить текущий лист", command=save_current_page),0,6),
+        (tk.Button(frame_navigation, text="Проверить", command=check_image), 0, 5),
+        (
+            tk.Button(
+                frame_navigation,
+                text="Сохранить текущий лист",
+                command=save_current_page,
+            ),
+            0,
+            6,
+        ),
     ]
     for element, row, col in elements_navigation:
         element.grid(row=row, column=col, padx=5, pady=5)
@@ -789,12 +956,13 @@ def create_interface():
     recognition_mode = tk.IntVar(value=0)
 
     # Создание и размещение Checkbutton отдельно
-    adv_checkbutton = tk.Checkbutton(frame_navigation, text="Расш.Режим", variable=recognition_mode)
+    adv_checkbutton = tk.Checkbutton(
+        frame_navigation, text="Расш.Режим", variable=recognition_mode
+    )
     adv_checkbutton.grid(row=0, column=7, padx=5, pady=5)
 
     # Настройка столбцов для растягивания
     frame_navigation.columnconfigure(1, weight=1)
-
 
     #################################################################
 
@@ -810,7 +978,7 @@ def create_interface():
         (tk.Label(frame_pattern, text="Шаблон поиска2:"), 0, 0),
         (tk.Entry(frame_pattern, width=20), 0, 1),
         (tk.Entry(frame_pattern, width=20), 0, 2),
-        (tk.Label(frame_pattern, text="Координаты: -"), 0, 3)
+        (tk.Label(frame_pattern, text="Координаты: -"), 0, 3),
     ]
 
     for element, row, col in elements_pattern:
@@ -826,20 +994,23 @@ def create_interface():
     # Привязка события для поля координат
     coordinates_entry.bind("<KeyRelease>", update_coordinates)
 
-
     #################################################################
 
-# Создание холстов
+    # Создание холстов
     frame_canvases = tk.Frame(root)
     frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
 
     canvas_width = 750 // 2
     canvas_height = 500
 
-    canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+    canvas = tk.Canvas(
+        frame_canvases, width=canvas_width, height=canvas_height, bg="grey"
+    )
     canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
 
-    canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+    canvas2 = tk.Canvas(
+        frame_canvases, width=canvas_width, height=canvas_height, bg="grey"
+    )
     canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
 
     canvas.bind("<Button-1>", define_coordinates)
@@ -853,7 +1024,7 @@ def create_interface():
 
     text_output = scrolledtext.ScrolledText(root, width=100, height=10)
     text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
-    text_output.config(state='normal')
+    text_output.config(state="normal")
     sys.stdout = TextRedirector(text_output)
 
     set_default_coordinates(coordinates_entry)
@@ -867,25 +1038,27 @@ def check_for_updates():
     response = requests.get(repo_url)
     if response.status_code == 200:
         latest_release = response.json()
-        latest_version = latest_release['tag_name'].lstrip('v')  # Убираем префикс 'v'
-        download_url = latest_release['assets'][0]['browser_download_url']
+        latest_version = latest_release["tag_name"].lstrip("v")  # Убираем префикс 'v'
+        download_url = latest_release["assets"][0]["browser_download_url"]
 
         # Сравниваем текущую версию с последней на GitHub
         if compare_versions(__version__, latest_version):
             text_output.delete(1.0, tk.END)
-            text_output.insert(tk.END, f"Появилась новая версия {latest_version}, рекомендуется обновиться\n")
+            text_output.insert(
+                tk.END,
+                f"Появилась новая версия {latest_version}, рекомендуется обновиться\n",
+            )
             text_output.insert(tk.END, download_url)
         else:
             text_output.delete(1.0, tk.END)
             text_output.insert(tk.END, "У вас последняя версия.")
 
 
-
 # Функция для сравнения версий
 def compare_versions(current_version: str, latest_version: str) -> bool:
     try:
-        current = tuple(map(int, current_version.split('.')))
-        latest = tuple(map(int, latest_version.split('.')))
+        current = tuple(map(int, current_version.split(".")))
+        latest = tuple(map(int, latest_version.split(".")))
     except ValueError:
         raise ValueError("Version numbers must contain only integers separated by dots")
 
@@ -897,8 +1070,6 @@ def compare_versions(current_version: str, latest_version: str) -> bool:
             return False
 
     return len(current) < len(latest)
-
-
 
 
 def main():
@@ -913,7 +1084,8 @@ def main():
         print("Программа завершена пользователем.")
         root.quit()  # Завершаем работу Tkinter, если прервано вручную
 
+
 # Запуск программы
 if __name__ == "__main__":
     main()
-    #cProfile.run('main()', 'output.prof')  # Запуск профилирования
+    # cProfile.run('main()', 'output.prof')  # Запуск профилирования
