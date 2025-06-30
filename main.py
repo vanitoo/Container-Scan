@@ -1,18 +1,27 @@
-import sys
+import csv
 import logging
 import os
 import re
+import sys
 import threading
 import tkinter as tk
+from difflib import SequenceMatcher
 from tkinter import filedialog, messagebox, scrolledtext
+from tkinter import ttk
+
 import cv2
 import fitz  # PyMuPDF
 import numpy as np
+import openpyxl  # для .xlsx
 import pytesseract
+import requests
 from PIL import Image, ImageTk
 from dotenv import load_dotenv, set_key
-import requests
+
 from version import __version__  # Импортируем номер версии
+
+EASYOCR_AVAILABLE = False
+PADDLEOCR_AVAILABLE = False
 
 
 # Глобальные переменные (лучше использовать класс для состояния)
@@ -23,7 +32,7 @@ DEFAULT_COORDINATES2 = {
     "y_end": 318,
     "regex_pattern": "^[A-Z]{3}U\d{7}$",
 }
-# x_start, y_start, x_end, y_end = None, None, None, None
+
 current_page = 0
 pdf_path = None
 pdf = None
@@ -33,6 +42,23 @@ scale_percent = 100  # Масштаб для обработки координа
 ENV_FILE = ".env"
 text_output = None
 reader = None
+# Добавьте в раздел глобальных переменных
+ocr_engine = "Tesseract"  # По умолчанию
+ocr_reader = None  # Для хранения инициализированного ридера EasyOCR/PaddleOCR
+
+canvas_scale = 1.0
+original_page_image = None
+global table_frame
+table_entries = []  # глобальная переменная — таблица как список словарей
+expected_containers = []  # список контейнеров из XLS
+pdf_doc = None
+selected_areas = []
+recognition_results = []  # Будет хранить словари с результатами для каждой страницы
+
+last_click_item = None
+last_click_time = 0
+DOUBLE_CLICK_DELAY = 300  # Задержка для двойного клика в миллисекундах
+global debug_mode
 
 # Настройка логирования
 logging.basicConfig(
@@ -41,6 +67,58 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
+
+
+def is_similar_ratio(a, b):
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def match_with_expected():
+    global table_entries, expected_containers, tree
+
+    # Получаем ожидаемые контейнеры из таблицы
+    expected_containers = []
+    for item in tree.get_children():
+        values = tree.item(item, 'values')
+        if len(values) > 1 and values[1]:  # values[1] - столбец "Контейнер из XLS"
+            expected_containers.append(values[1])
+
+    if not expected_containers:
+        messagebox.showwarning("Ошибка", "Нет данных для сопоставления в столбце 'Контейнер из XLS'")
+        return
+
+    for entry in table_entries:
+        recognized = entry.get("recognized", "")
+        if not recognized:
+            continue
+
+        best_match = ""
+        best_score = 0.0
+
+        for expected in expected_containers:
+            if not expected:
+                continue
+            score = is_similar_ratio(recognized, expected)
+            if score > best_score:
+                best_score = score
+                best_match = expected
+
+        # Обновляем строку в таблице
+        values = list(tree.item(entry["item_id"], 'values'))
+        values[3] = best_match  # Совпадение
+        values[4] = f"{best_score:.2f}"  # Коэффициент
+        tree.item(entry["item_id"], values=values)
+
+        # Обновляем цвет строки
+        if best_score == 1.0:  # Полное совпадение
+            tree.tag_configure("exact_match", background="#a8e6a8")  # Светло-зеленый
+            tree.item(entry["item_id"], tags=("exact_match",))
+        elif best_score > 0:  # Любое другое совпадение
+            tree.tag_configure("partial_match", background="#fff8a8")  # Светло-желтый
+            tree.item(entry["item_id"], tags=("partial_match",))
+        else:  # Нет совпадения
+            tree.tag_configure("no_match", background="#ffaaaa")  # Светло-красный
+            tree.item(entry["item_id"], tags=("no_match",))
 
 def safe_execute(func):
     """Декоратор для оборачивания функций с обработкой ошибок и логированием."""
@@ -93,143 +171,134 @@ def create_output_directory(input_file_path):
         return None
 
 
-def draw_selection():
-    global rect_id, x_start, y_start, x_end, y_end, canvas2, cropped_image
 
-    # Удаляем предыдущий прямоугольник, если он был нарисован
+def draw_selection():
+    global rect_id, x_start, y_start, x_end, y_end, canvas2, cropped_image, canvas2_scale
+
     if rect_id:
         canvas.delete(rect_id)
     rect_id = canvas.create_rectangle(
         x_start, y_start, x_end, y_end, outline="red", width=2
     )
 
-    canvas.coords(rect_id, x_start, y_start, x_end, y_end)
     update_coordinates_entry()
 
-    # Вырез области изображения по координатам
     if page_image:
-        # Вырезка области из оригинального изображения
-        cropped_image = page_image.crop((x_start, y_start, x_end, y_end))
-        # Отображение на втором холсте
-        cropped_image_display = ImageTk.PhotoImage(image=cropped_image)
-        canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-        # Обновление ссылки для предотвращения сборки мусора
-        canvas2.image = cropped_image_display
+        # Вырезаем область с оригинальными координатами (без учета текущего масштаба)
+        inverse_scale = 1 / scale_factor
+        x1 = int(x_start * inverse_scale)
+        y1 = int(y_start * inverse_scale)
+        x2 = int(x_end * inverse_scale)
+        y2 = int(y_end * inverse_scale)
+
+        cropped_image = original_page_image.crop((x1, y1, x2, y2))
+
+        # Масштабируем до 200% по умолчанию
+        canvas2_scale = 1.0
+        width = int(cropped_image.width * canvas2_scale)
+        height = int(cropped_image.height * canvas2_scale)
+        scaled_img = cropped_image.resize((width, height), Image.LANCZOS)
+
+        # Отображаем на canvas2
+        canvas2.delete("all")
+        canvas2.image = ImageTk.PhotoImage(scaled_img)
+        canvas2.create_image(0, 0, anchor=tk.NW, image=canvas2.image)
+        canvas2.config(scrollregion=canvas2.bbox(tk.ALL))
 
 
-# Функция для выбора файла PDF
+def unload_pdf():
+    global pdf_doc, current_page, page_image, image_display
+    global original_page_image, selected_areas, total_pages
+    global scale_factor, last_scale_factor
+
+    try:
+        if pdf_doc:
+            pdf_doc.close()
+            pdf_doc = None
+    except Exception as e:
+        logging.warning(f"Не удалось закрыть PDF: {e}")
+
+    # Сброс параметров
+    current_page = 0
+    page_image = None
+    original_page_image = None
+    image_display = None
+    selected_areas = []
+    total_pages = 0
+    scale_factor = 1.0
+    last_scale_factor = 1.0
+
+    # Очистка холста
+    if canvas:
+        canvas.delete("all")
+        canvas.config(scrollregion=(0, 0, 0, 0))
+
+
 def select_pdf():
-    global pdf_path, current_page, pdf, entry_pdf_path
-    pdf_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
-    if pdf_path:
-        entry_pdf_path.delete(0, tk.END)
-        entry_pdf_path.insert(0, pdf_path)
-        current_page = 0
-        load_page()
+    global pdf_path, current_page, entry_pdf_path
+    try:
+        file_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
+        if file_path:
+            unload_pdf()  # ← сбрасываем предыдущий
+            pdf_path = file_path
 
-    # try:
-    #    pdf_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
-    #    if pdf_path:
-    #        entry_pdf_path.delete(0, tk.END)
-    #        entry_pdf_path.insert(0, pdf_path)
-    #        current_page = 0
-    #        load_page()
-    # except Exception as e:
-    #    messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
+            entry_pdf_path.delete(0, tk.END)
+            entry_pdf_path.insert(0, file_path)
+            current_page = 0
+
+            load_page()
+    except Exception as e:
+        messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
+        logging.exception("Ошибка выбора PDF")
+
 
 
 # Функция загрузки и отображения страницы PDF
 @safe_execute
 def load_page():
-    global \
-        image_display, \
-        pdf, \
-        current_page, \
-        page_image, \
-        scale_factor, \
-        page_width2, \
-        page_height2, \
-        canvas, \
-        label_page_number, \
-        label_page_size, \
-        label_scale, \
-        total_pages
+    global image_display, label_page_number, label_page_size, label_scale
+    global pdf_doc, current_page, page_image, scale_factor
+    global page_width2, page_height2, canvas, total_pages
+    global original_page_image, last_scale_factor, pdf_path, tree
+
     if not pdf_path:
         return
+
     try:
-        with fitz.open(pdf_path) as pdf:
-            current_page = max(0, min(current_page, pdf.page_count - 1))
-            page = pdf.load_page(current_page)
-            total_pages = pdf.page_count
-            pix = page.get_pixmap(dpi=150)
+        if pdf_doc is None:
+            recognition_results = []  # Очищаем предыдущие результаты
+            pdf_doc = fitz.open(pdf_path)
+            # Создаем строки таблицы по количеству страниц
+            build_table_from_pdf(pdf_doc)
 
-            Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        current_page = max(0, min(current_page, pdf_doc.page_count - 1))
+        page = pdf_doc.load_page(current_page)
+        total_pages = pdf_doc.page_count
 
-            page_width2, page_height2 = page.rect.width, page.rect.height
-            print(
-                f"Страница {current_page + 1}: размер {page_width2} x {page_height2} points"
-            )
+        pix = page.get_pixmap(dpi=200)
+        original_page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            ## Преобразование Pixmap в объект PIL Image
-            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            # Получаем размеры canvas и изображения
-            # canvas_width = canvas.winfo_width()
-            # canvas_height = canvas.winfo_height()
-            # img_width, img_height = img.size
-            # Рассчитываем коэффициент масштабирования, чтобы изображение вписалось в canvas
-            # scale = min(canvas_width / img_width, canvas_height / img_height)
-            # print(scale)
-            # new_width = int(img_width * scale)
-            # new_height = int(img_height * scale)
-            # print(new_width,new_height)
-            # Масштабируем изображение
-            # img_resized = img.resize((new_width, new_height), Image.LANCZOS)
-            # Преобразуем изображение в формат, совместимый с tkinter
-            # img_tk = ImageTk.PhotoImage(img_resized)
-            # Очищаем canvas и добавляем новое изображение
-            # canvas.delete("all")
-            # canvas.create_image((canvas_width - new_width) // 2, (canvas_height - new_height) // 2, anchor="nw",image=img_tk)
-            # Сохраняем ссылку на изображение, чтобы избежать его удаления сборщиком мусора
-            # canvas.image = img_tk
+        canvas_height = canvas.winfo_height()
+        image_height = original_page_image.height
+        scale_factor = (scale_percent / 100) * (canvas_height / image_height)
+        last_scale_factor = scale_factor
 
-            # Получение размеров холста
-            canvas_height = canvas.winfo_height()
-            image_height = page_image.height
+        scaled_width = int(original_page_image.width * scale_factor)
+        scaled_height = int(original_page_image.height * scale_factor)
+        page_image = original_page_image.resize((scaled_width, scaled_height), Image.LANCZOS)
 
-            # Вычисление коэффициента масштабирования для подгонки по высоте с учетом scale_percent
-            scale_factor = (scale_percent / 100) * (canvas_height / image_height)
+        image_display = ImageTk.PhotoImage(image=page_image)
+        if canvas:
+            canvas.delete("all")
+            canvas.create_image(0, 0, anchor=tk.NW, image=image_display)
+            canvas.config(scrollregion=canvas.bbox(tk.ALL))
 
-            # Масштабирование изображения с учетом scale_percent
-            scaled_width = int(page_image.width * scale_factor)
-            scaled_height = int(page_image.height * scale_factor)
-            page_image = page_image.resize((scaled_width, scaled_height), Image.LANCZOS)
+        root.title(f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages}")
+        draw_selection()
 
-            # Отображение изображения на холсте
-            image_display = ImageTk.PhotoImage(image=page_image)
-            if canvas:
-                canvas.create_image(0, 0, anchor=tk.NW, image=image_display)
-                canvas.config(scrollregion=canvas.bbox(tk.ALL))
-
-            # Обновление информации о текущей странице
-            # label_page_number.config(text=f"Страница: {current_page + 1}/{pdf.page_count}")
-            root.title(
-                f"Распознавание текста из PDF - Страница {current_page + 1}/{pdf.page_count} - Координаты: "
-            )
-
-            # Обновление информации о размере страницы (Page Size)
-            page_size_text = f"{pix.width}x{pix.height}"  # Размеры страницы в пикселях
-            # label_page_size.config(text=f"Page Size: {page_size_text}")
-            print(f"Page Size: {page_size_text}")
-
-            # Обновление масштаба (Scale)
-            scale_text = f"{round(scale_factor * 100)}%"  # Масштаб в процентах, округленный до целых
-            # label_scale.config(text=f"Scale: {scale_text}")
-            print("Scale:", scale_text)
-
-            draw_selection()
     except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось загрузить страницу: {e}")
-
+        logging.exception("Ошибка при загрузке страницы")
 
 # Функция для выбора координат области
 def define_coordinates(event):
@@ -261,39 +330,34 @@ def draw_rectangle(event):
 
 
 def finish_coordinates(event):
-    global \
-        x_start, \
-        y_start, \
-        x_end, \
-        y_end, \
-        cropped_image_display, \
-        cropped_image, \
-        canvas2, \
-        label_coordinates, \
-        total_pages
+    global x_start, y_start, x_end, y_end, cropped_image_display, cropped_image
+    global canvas2, label_coordinates, total_pages
+
     x_end, y_end = event.x, event.y
 
-    #    label_coordinates.configure(text=f"Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})")
+    # Проверяем, чтобы координаты были корректны
+    if x_end < x_start:
+        x_start, x_end = x_end, x_start
+    if y_end < y_start:
+        y_start, y_end = y_end, y_start
 
     root.title(
-        f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages} - Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})"
-    )
+        f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages} - Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})")
 
     canvas.coords(rect_id, x_start, y_start, x_end, y_end)
+    selected_areas.clear()
+    selected_areas.append((rect_id, x_start, y_start, x_end, y_end))
+
     update_coordinates_entry()
 
-    # Вырез области изображения по координатам
     if page_image:
-        # Вырезка области из оригинального изображения
-        cropped_image = page_image.crop((x_start, y_start, x_end, y_end))
-
-        # Отображение на втором холсте
-        cropped_image_display = ImageTk.PhotoImage(image=cropped_image)
-        canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-
-        # Обновление ссылки для предотвращения сборки мусора
-        canvas2.image = cropped_image_display
-
+        try:
+            cropped_image = page_image.crop((x_start, y_start, x_end, y_end))
+            cropped_image_display = ImageTk.PhotoImage(image=cropped_image)
+            canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
+            canvas2.image = cropped_image_display
+        except Exception as e:
+            messagebox.showerror("Ошибка", f"Неверные координаты выделения: {e}")
 
 # Функция обновления метки координат
 def update_coordinates_label():
@@ -320,17 +384,6 @@ def update_coordinates_entry():
         coordinates_text = f"{x_start},{y_start},{x_end},{y_end}"
         coordinates_entry.delete(0, tk.END)
         coordinates_entry.insert(0, coordinates_text)
-
-
-@safe_execute
-def format_extracted_text2(text, i):
-    global regex_pattern, regex_pattern_entry
-    regex_pattern = regex_pattern_entry.get()  # Получение шаблона из поля ввода
-    cleaned_text = re.sub(r"[^A-Za-z0-9]", "", text).upper()
-    if re.match(regex_pattern, cleaned_text):
-        return cleaned_text
-
-    # Ваш существующий код для обработки текста...
 
 
 # Функция для проверки и форматирования распознанного текста
@@ -366,148 +419,313 @@ def format_extracted_text(text, i):
     return formatted_text
 
 
+def build_table_from_pdf(pdf_doc):
+    global table_entries, tree
+
+    # Очищаем таблицу
+    for item in tree.get_children():
+        tree.delete(item)
+
+    table_entries = []
+
+    # Создаем строки по количеству страниц
+    for i in range(pdf_doc.page_count):
+        item_id = tree.insert("", tk.END, values=(
+            i + 1,  # № страницы
+            "",  # Контейнер из XLS (пока пусто)
+            "",  # Распознанный контейнер
+            "",  # Совпадение
+            ""  # Коэффициент
+        ))
+        table_entries.append({
+            "index": i + 1,
+            "item_id": item_id,
+            "code": "",
+            "recognized": ""
+        })
+
+def update_table_from_entries(table_frame_ref):
+    global table_entries
+
+    # Очистка предыдущего содержимого таблицы
+    for widget in table_frame_ref.grid_slaves():
+        if int(widget.grid_info()["row"]) > 0:
+            widget.destroy()
+
+    for i, entry in enumerate(table_entries, start=1):
+        # Ячейка "№"
+        tk.Label(table_frame_ref, text=str(entry["index"]), borderwidth=1, relief=tk.RIDGE).grid(row=i, column=0, sticky="nsew")
+
+        # Ячейка "Контейнер из XLS" — может быть пустой
+        tk.Label(table_frame_ref, text=entry.get("code", ""), borderwidth=1, relief=tk.RIDGE).grid(row=i, column=1, sticky="nsew")
+
+        # Ячейка "Контейнер распознанный"
+        lbl_recognized = tk.Label(table_frame_ref, text=entry.get("recognized", ""), borderwidth=1, relief=tk.RIDGE)
+        lbl_recognized.grid(row=i, column=2, sticky="nsew")
+        entry["label_recognized"] = lbl_recognized
+
+        # Ячейка "Совпадение"
+        lbl_match = tk.Label(table_frame_ref, text=entry.get("match", ""), borderwidth=1, relief=tk.RIDGE)
+        lbl_match.grid(row=i, column=3, sticky="nsew")
+        entry["label_match"] = lbl_match
+
+        # Ячейка "Коэффициент"
+        lbl_score = tk.Label(table_frame_ref, text=entry.get("score", ""), borderwidth=1, relief=tk.RIDGE)
+        lbl_score.grid(row=i, column=4, sticky="nsew")
+        entry["label_score"] = lbl_score
+
+
 # Функция для выполнения длительной задачи в потоке
 def start_recognition_thread():
     threading.Thread(target=start_recognition, daemon=True).start()
 
+def start_recognition2():
+    global selected_areas, pdf_doc, tree
 
-#    start_task_with_progress(start_recognition)
-
-
-@safe_execute
-def start_recognition():
-    global pdf_path, x_start, y_start, x_end, y_end, canvas2, cropped_image
-
-    if not pdf_path:
-        messagebox.showerror("Ошибка", "Пожалуйста, выберите PDF файл.")
+    if not pdf_doc:
+        messagebox.showwarning("Нет документа", "Пожалуйста, выберите PDF-файл.")
         return
 
-    # Проверка наличия значений координат
-    if x_start is None or y_start is None or x_end is None or y_end is None:
-        messagebox.showerror("Ошибка", "Координаты не заданы.")
+    # Если нет выделенной области, но есть координаты из .env
+    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
+        draw_selection()  # Визуализируем область
+
+
+    if not selected_areas:
+        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
         return
 
-    print(
-        f"Используемые координаты: x_start={x_start}, y_start={y_start}, x_end={x_end}, y_end={y_end}"
-    )
+    area = selected_areas[0]
+    _, x1, y1, x2, y2 = area
+    coords = (x1, y1, x2, y2)
+    engine = ocr_engine_var.get().lower()
 
-    # Создание выходной папки
-    output_dir = create_output_directory(pdf_path)
+    text_output.delete(1.0, tk.END)
+    text_output.insert(tk.END, "Начало распознавания...\n")
+    text_output.see(tk.END)
+    root.update()  # Обновляем интерфейс, чтобы показать сообщение
 
-    with fitz.open(pdf_path) as pdf:
-        total_pages = pdf.page_count
-        print(f"Количество страниц в PDF: {total_pages}")
+    try:
+        for page_num in range(pdf_doc.page_count):
+            try:
+                recognized_text = recognize_area(pdf_doc, page_num, coords, engine)
+                formatted_text = format_extracted_text(recognized_text, page_num + 1)
 
-        for i in range(total_pages):  # Используем индекс для загрузки страниц
-            page = pdf.load_page(i)  # Загружаем страницу по индексу
-            pix = page.get_pixmap(dpi=150)
-            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                # Обновляем таблицу
+                if page_num < len(table_entries):
+                    table_entries[page_num]["recognized"] = formatted_text
+                    tree.item(table_entries[page_num]["item_id"],
+                             values=(
+                                 page_num + 1,
+                                 table_entries[page_num]["code"],
+                                 formatted_text,
+                                 "",  # Совпадение
+                                 ""   # Коэффициент
+                             ))
 
-            # Проверка координат на допустимость
-            if (
-                x_start < 0
-                or y_start < 0
-                or x_end > page_image.width
-                or y_end > page_image.height
-            ):
-                messagebox.showerror(
-                    "Ошибка", f"Координаты выходят за пределы страницы {i + 1}."
-                )
+                # Логируем прогресс
+                log_msg = f"Страница {page_num + 1}/{pdf_doc.page_count}: {formatted_text}\n"
+                text_output.insert(tk.END, log_msg)
+                text_output.see(tk.END)
+                root.update()  # Обновляем интерфейс после каждой страницы
+
+            except Exception as e:
+                error_msg = f"Ошибка на странице {page_num + 1}: {str(e)}\n"
+                text_output.insert(tk.END, error_msg)
+                text_output.see(tk.END)
+                logging.error(error_msg, exc_info=True)
                 continue
 
-            # canvas.coords(rect_id, x_start, y_start, x_end, y_end)
-            # update_coordinates_entry()
+        text_output.insert(tk.END, "\nРаспознавание завершено!\n")
+        logging.info(f"Распознано {pdf_doc.page_count} страниц.")
 
-            # Обратный коэффициент масштабирования
-            inverse_scale_factor = 1 / scale_factor
-            # Преобразование координат для использования с оригинальным изображением
-            x_start_orig = int(x_start * inverse_scale_factor)
-            y_start_orig = int(y_start * inverse_scale_factor)
-            x_end_orig = int(x_end * inverse_scale_factor)
-            y_end_orig = int(y_end * inverse_scale_factor)
-
-            cropped_image = page_image.crop(
-                (x_start_orig, y_start_orig, x_end_orig, y_end_orig)
-            )
-            # cropped_image = page_image.crop((x_start, y_start, x_end, y_end))
-
-            cropped_image_display = ImageTk.PhotoImage(image=cropped_image)
-            canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-            canvas2.image = cropped_image_display
-
-            # Преобразование изображения для распознавания текста
-            open_cv_image = np.array(cropped_image)
-            open_cv_image = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2BGR)
-
-            extracted_text = pytesseract.image_to_string(
-                open_cv_image, lang="eng"
-            ).strip()
-
-            # Форматирование распознанного текста
-            formatted_text = format_extracted_text(extracted_text, i + 1)
-
-            # Печать распознанного текста
-            print(f"Страница {i + 1}:")
-            print(f"Распознанный текст: {formatted_text}")
-
-            # Сохранение распознанного текста в файл
-            with open(
-                os.path.join(output_dir, f"{i + 1}_text.txt"), "w", encoding="utf-8"
-            ) as f:
-                f.write(extracted_text)
-
-            # Сохранение области для сверки
-            cv_output_file_name = os.path.join(output_dir, f"{i + 1}_cv.jpg")
-            pil_image = Image.fromarray(cv2.cvtColor(open_cv_image, cv2.COLOR_BGR2RGB))
-            pil_image.save(cv_output_file_name)
-            print(f"Сохранена область для сверки: {cv_output_file_name}")
-
-            # Сохранение страницы
-            output_file_name = os.path.join(output_dir, f"{i + 1}_{formatted_text}.jpg")
-            page_image.save(output_file_name)
-            print(f"Страница сохранена как: {output_file_name}")
+    except Exception as e:
+        error_msg = f"Критическая ошибка: {str(e)}\n"
+        text_output.insert(tk.END, error_msg)
+        logging.error(error_msg, exc_info=True)
+        logging.error(f"Произошла ошибка при распознавании: {e}")
 
 
-def enhanced_recognition11(image):
-    """Функция для расширенного распознавания текста с дополнительной обработкой."""
-    # Применение фильтров и предобработки для улучшения качества изображения
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+def start_recognition():
+    global selected_areas, pdf_doc, last_scale_factor
 
-    # Применение шумоподавления
-    processed_image = cv2.medianBlur(thresh, 3)
-    # Увеличение разрешения
-    processed_image = cv2.resize(
-        processed_image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC
-    )
+    if not pdf_doc:
+        messagebox.showwarning("Нет документа", "Пожалуйста, выберите PDF-файл.")
+        return
 
-    # Распознавание текста
-    extracted_text = pytesseract.image_to_string(
-        processed_image, lang="eng", config="--oem 1 --psm 6"
-    ).strip()
-
-    return extracted_text
+    # Если нет выделенной области, но есть координаты из .env
+    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
+        draw_selection()  # Визуализируем область
 
 
-def enhanced_recognition12(image):
-    """Расширенное распознавание с применением нескольких методов обработки."""
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    gray = cv2.medianBlur(gray, 3)
-    _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    if not selected_areas:
+        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
+        return
 
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced_image = clahe.apply(thresh)
+    try:
+        area = selected_areas[0]
+        _, x1, y1, x2, y2 = area
+        coords = (x1, y1, x2, y2)
+        engine = ocr_engine_var.get().lower()
 
-    # Увеличение разрешения
-    enhanced_image = cv2.resize(
-        enhanced_image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC
-    )
+        for page_num in range(pdf_doc.page_count):
+            recognized_text = recognize_area(pdf_doc, page_num, coords, engine)
+            formatted_text = format_extracted_text(recognized_text, page_num + 1)
 
-    extracted_text = pytesseract.image_to_string(
-        enhanced_image, lang="eng", config="--oem 1 --psm 6"
-    ).strip()
-    return extracted_text
+            # Обновляем таблицу
+            if page_num < len(table_entries):
+                table_entries[page_num]["recognized"] = formatted_text
+                item_id = table_entries[page_num]["item_id"]
+                current_values = list(tree.item(item_id, 'values'))
+                current_values[2] = formatted_text  # recognized column
+                tree.item(item_id, values=current_values)
 
+        messagebox.showinfo("Готово", f"Распознано {pdf_doc.page_count} страниц.")
+
+    except Exception as e:
+        logging.exception("Ошибка при распознавании всех страниц")
+        messagebox.showerror("Ошибка", f"Произошла ошибка при распознавании: {e}")
+
+
+
+
+def save_results(btn):
+    """Запускает сохранение результатов в отдельном потоке"""
+    btn.config(state=tk.DISABLED)
+    threading.Thread(target=_save_results_worker, args=(btn,), daemon=True).start()
+
+
+def _save_results_worker(btn):
+    """Функция-рабочий для сохранения результатов"""
+    global pdf_doc, table_entries, debug_mode, recognition_results
+
+    if not pdf_doc:
+        messagebox.showerror("Ошибка", "PDF документ не загружен")
+        return
+
+    if not table_entries:
+        messagebox.showerror("Ошибка", "Нет данных для сохранения")
+        return
+
+    try:
+        # Создаем прогресс-бар
+        progress = tk.Toplevel(root)
+        progress.title("Сохранение...")
+        progress.geometry("300x100")
+        tk.Label(progress, text="Идет сохранение результатов").pack(pady=10)
+        progress_bar = ttk.Progressbar(progress, mode='indeterminate')
+        progress_bar.pack(fill='x', padx=20, pady=5)
+        progress_bar.start()
+
+        # Выполняем сохранение в потоке
+        output_dir = create_output_directory(pdf_path)
+
+        for i, entry in enumerate(table_entries):
+            page_num = entry['index'] - 1
+            page = pdf_doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=200)
+            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            recognized = entry.get('recognized', '')
+            match = tree.item(entry['item_id'], 'values')[3]  # Значение из столбца "Совпадение"
+            filename = match if match else recognized if recognized else f"page_{i + 1}"
+
+            base_path = os.path.join(output_dir, f"{i + 1}_{filename}")
+            page_image.save(f"{base_path}_full.jpg")
+
+            if debug_mode.get():
+                if hasattr(canvas2, 'image') and canvas2.image:
+                    cropped_image.save(f"{base_path}_cropped.jpg")
+
+                if i < len(recognition_results):
+                    result = recognition_results[i]
+                    with open(f"{base_path}_info.txt", "w", encoding="utf-8") as f:
+                        f.write(f"Страница: {result['page']}\n")
+                        f.write(f"Координаты: {result['coords']}\n")
+                        f.write(f"Движок OCR: {result['engine']}\n")
+                        f.write("\n--- Исходный текст ---\n")
+                        f.write(result['raw_text'])
+                        f.write("\n\n--- Форматированный текст ---\n")
+                        f.write(result['formatted_text'])
+
+                # with open(f"{base_path}.txt", "w", encoding="utf-8") as f:
+                #     f.write(recognized)
+
+        # Закрываем прогресс-бар и показываем сообщение
+        progress.destroy()
+        messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+
+    except Exception as e:
+        progress.destroy()
+        messagebox.showerror("Ошибка", f"Ошибка при сохранении: {str(e)}")
+        logging.error(f"Ошибка сохранения: {e}", exc_info=True)
+    finally:
+        if 'progress' in locals():
+            progress.destroy()
+        btn.after(0, lambda: btn.config(state=tk.NORMAL))
+
+
+def _save_results_worker3():
+    global recognition_results
+
+    try:
+        output_dir = create_output_directory(pdf_path)
+
+        for i, entry in enumerate(table_entries):
+            page_num = entry['index'] - 1
+            page = pdf_doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=200)
+            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            base_path = os.path.join(output_dir, f"page_{i + 1}")
+            page_image.save(f"{base_path}_full.jpg")
+
+            # Сохранение дополнительных данных в debug-режиме
+            if debug_mode.get():
+                # Сохраняем cropped image
+                if hasattr(canvas2, 'image') and canvas2.image:
+                    cropped_image.save(f"{base_path}_cropped.jpg")
+
+                # Сохраняем распознанный текст
+                if i < len(recognition_results):
+                    result = recognition_results[i]
+                    with open(f"{base_path}_info.txt", "w", encoding="utf-8") as f:
+                        f.write(f"Страница: {result['page']}\n")
+                        f.write(f"Координаты: {result['coords']}\n")
+                        f.write(f"Движок OCR: {result['engine']}\n")
+                        f.write("\n--- Исходный текст ---\n")
+                        f.write(result['raw_text'])
+                        f.write("\n\n--- Форматированный текст ---\n")
+                        f.write(result['formatted_text'])
+
+        messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+
+    except Exception as e:
+        messagebox.showerror("Ошибка", f"Ошибка при сохранении: {str(e)}")
+        logging.error(f"Ошибка сохранения: {e}", exc_info=True)
+
+
+
+def recognize_with_selected_engine2(image):
+
+    if ocr_engine == "tesseract":
+        return pytesseract.image_to_string(image, lang="eng").strip()
+
+    if ocr_engine == "easyocr":
+        results = ocr_reader.readtext(image, detail=0, paragraph=False)
+        return " ".join(results).strip()
+
+    if ocr_engine == "paddleocr":
+        results = ocr_reader.predict(img=image, cls=True)
+        if results and isinstance(results[0], list):
+            texts = [line[1][0] for line in results[0]]
+            return " ".join(texts).strip()
+        return ""
+
+    # fallback, если движок неизвестен
+    return ""
 
 def run_ocr_in_thread(image, **kwargs):
     """Запуск OCR в отдельном потоке с передачей параметров."""
@@ -519,20 +737,26 @@ def enhanced_recognition(
     image,
     use_grayscale=True,
     use_median_blur=True,
-    use_thresholding=True,
+    use_thresholding=False,
     use_clahe=True,
     use_resize=True,
-    use_deskew=True,
+    use_deskew=False,
     use_noise_removal=True,
-    use_morphological_ops=True,
+    use_morphological_ops=False,
     use_channel_extraction=False,
     channel="blue",
+    use_edge_preprocessing=True  # новый параметр
 ):
     """Расширенная функция распознавания текста с поддержкой EasyOCR и настройками включения этапов обработки."""
 
     # Преобразование в оттенки серого
     if use_grayscale:
         image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Предобработка через Canny после размытия
+    if use_edge_preprocessing:
+        blur = cv2.GaussianBlur(image, (5, 5), 0)
+        image = cv2.Canny(blur, 50, 150)
 
     # Применение медианной фильтрации для удаления шума
     if use_median_blur:
@@ -586,102 +810,240 @@ def enhanced_recognition(
         elif channel == "red":
             image = image[:, :, 2]
 
-    extracted_text = pytesseract.image_to_string(image, lang="eng").strip()
+    # extracted_text = pytesseract.image_to_string(image, lang="eng").strip()
+    extracted_text = pytesseract.image_to_string(image, lang="eng").strip().upper()
 
     return extracted_text
 
 
-def check_image():
-    global \
-        x_start, \
-        y_start, \
-        x_end, \
-        y_end, \
-        current_page, \
-        pdf_path, \
-        canvas2, \
-        text_output, \
-        recognition_mode
+def convert_coords_to_pdf(coords_canvas, scale_factor):
+    x1, y1, x2, y2 = coords_canvas
+    return (
+        int(x1 / scale_factor),
+        int(y1 / scale_factor),
+        int(x2 / scale_factor),
+        int(y2 / scale_factor),
+    )
 
-    # Проверка на наличие пути к PDF
-    if not pdf_path:
-        messagebox.showerror("Ошибка", "Не выбран PDF файл.")
+def extract_text_by_coords(page_num, coords_canvas):
+    if not pdf_doc:
+        print("PDF-документ не загружен.")
+        return ""
+
+    coords_pdf = convert_coords_to_pdf(coords_canvas, last_scale_factor)
+
+    try:
+        page = pdf_doc.load_page(page_num)
+        pix = page.get_pixmap(dpi=300)
+        pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        cropped = pil_img.crop(coords_pdf)
+        return recognize_with_selected_engine(cropped)
+    except Exception as e:
+        print(f"Ошибка при OCR страницы {page_num + 1}: {e}")
+        return ""
+
+
+def check_image2():
+    global pdf_doc, current_page, selected_areas, tree
+
+    if not pdf_doc:
+        messagebox.showwarning("Нет файла", "Пожалуйста, выберите PDF-файл.")
         return
 
-    # Проверка координат
-    if None in (x_start, y_start, x_end, y_end):
-        messagebox.showwarning("Внимание", "Пожалуйста, выделите область для анализа.")
+    # Если нет выделенной области, но есть координаты из .env
+    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
+        draw_selection()  # Визуализируем область
+
+
+    if not selected_areas:
+        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
         return
 
     try:
-        # Открытие PDF файла
-        with fitz.open(pdf_path) as pdf:
-            if current_page < 0 or current_page >= pdf.page_count:
-                messagebox.showerror("Ошибка", "Неверный номер страницы.")
-                return
+        area = selected_areas[0]
+        _, x1, y1, x2, y2 = area
+        coords = (x1, y1, x2, y2)
+        engine = ocr_engine_var.get().lower()
 
-            # Загрузка текущей страницы
-            page = pdf.load_page(current_page)
-            pix = page.get_pixmap(dpi=150)
-            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        # Распознаем только текущую страницу
+        recognized_text = recognize_area(pdf_doc, current_page, coords, engine)
+        formatted_text = format_extracted_text(recognized_text, current_page + 1)
 
-            # Обратный коэффициент масштабирования
-            inverse_scale_factor = 1 / scale_factor
-            # Преобразование координат для использования с оригинальным изображением
-            x_start_orig = int(x_start * inverse_scale_factor)
-            y_start_orig = int(y_start * inverse_scale_factor)
-            x_end_orig = int(x_end * inverse_scale_factor)
-            y_end_orig = int(y_end * inverse_scale_factor)
+        # Обновляем соответствующую строку в таблице
+        if current_page < len(table_entries):
+            table_entries[current_page]["recognized"] = formatted_text
+            tree.item(table_entries[current_page]["item_id"],
+                      values=(
+                          current_page + 1,
+                          table_entries[current_page]["code"],
+                          formatted_text,
+                          "",  # Совпадение
+                          ""  # Коэффициент
+                      ))
 
-            # Обрезка изображения по выбранной области
-            cropped_image = page_image.crop(
-                (x_start_orig, y_start_orig, x_end_orig, y_end_orig)
-            )
-
-            # Отображение обрезанного изображения на холсте canvas2 (если необходимо)
-            cropped_image_display = ImageTk.PhotoImage(image=cropped_image)
-            canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-            canvas2.image = cropped_image_display
-
-            # Преобразование изображения для распознавания текста
-            open_cv_image = np.array(cropped_image)
-            open_cv_image = cv2.cvtColor(open_cv_image, cv2.COLOR_RGB2BGR)
-
-            if recognition_mode.get() == 0:
-                # Обычное распознавание
-                extracted_text = pytesseract.image_to_string(
-                    open_cv_image, lang="eng"
-                ).strip()
-            else:
-                # Расширенное распознавание
-                extracted_text = enhanced_recognition11(open_cv_image)
-                # extracted_text = enhanced_recognition(open_cv_image, use_grayscale=False, use_median_blur=False, use_thresholding=False,
-                #                        use_clahe=False, use_resize=False, use_deskew=False, use_noise_removal=False,
-                #                        use_morphological_ops=False, use_channel_extraction=False)
-
-            #            formatted_text = format_extracted_text(extracted_text, i + 1)
-            #            print(f"Страница {i + 1}: {formatted_text}")
-
-            # Форматирование распознанного текста
-            formatted_text = format_extracted_text(extracted_text, current_page + 1)
-            print(f"Страница {current_page + 1}: {formatted_text}")
-            print("Распознанное имя:", formatted_text)
-
-            # Вывод распознанного текста в консоль
-            print("Распознанный текст:")
-            print(extracted_text)
-
-            state = "включен" if recognition_mode.get() == 1 else "выключен"
-            print(f"Расширенный режим распознавания {state}")
-
-            # Обновление текстового поля (если используется)
-            # text_output.delete(1.0, "end")
-            # text_output.insert("end", extracted_text)
+        text_output.delete(1.0, tk.END)
+        text_output.insert(tk.END, f"Страница {current_page + 1}:\n")
+        text_output.insert(tk.END, f"Распознано: {formatted_text}\n")
+        text_output.insert(tk.END, f"Исходный текст: {recognized_text}\n")
 
     except Exception as e:
-        logging.error(f"Ошибка при распознавании: {e}", exc_info=True)
+        logging.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
 
+
+def check_image():
+    global current_page, selected_areas, recognition_results
+
+    if not pdf_doc:
+        messagebox.showwarning("Нет файла", "Пожалуйста, выберите PDF-файл.")
+        return
+
+    # Если нет выделенной области, но есть координаты из .env
+    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
+        draw_selection()  # Визуализируем область
+
+
+    if not selected_areas:
+        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
+        return
+
+    try:
+        area = selected_areas[0]
+        _, x1, y1, x2, y2 = area
+        coords = (x1, y1, x2, y2)
+        engine = ocr_engine_var.get().lower()
+
+        recognized_text = recognize_area(pdf_doc, current_page, coords, engine)
+        formatted_text = format_extracted_text(recognized_text, current_page + 1)
+
+        # Обновляем таблицу
+        if current_page < len(table_entries):
+            table_entries[current_page]["recognized"] = formatted_text
+            tree.item(table_entries[current_page]["item_id"],
+                      values=(
+                          current_page + 1,
+                          table_entries[current_page]["code"],
+                          formatted_text,
+                          "",
+                          ""
+                      ))
+
+        # Выводим в текстовое поле
+        text_output.delete(1.0, tk.END)
+        if current_page < len(recognition_results):
+            result = recognition_results[current_page]
+            text_output.insert(tk.END, f"=== Страница {current_page + 1} ===\n")
+            text_output.insert(tk.END, f"Координаты: {result['coords']}\n")
+            text_output.insert(tk.END, f"Движок: {result['engine']}\n")
+            text_output.insert(tk.END, "\n--- Исходный текст ---\n")
+            text_output.insert(tk.END, result['raw_text'])
+            text_output.insert(tk.END, "\n\n--- Форматированный текст ---\n")
+            text_output.insert(tk.END, result['formatted_text'])
+
+    except Exception as e:
+        logging.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
+        messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
+
+def extract_area_image_from_pdf(pdf_doc, page_index, coords, dpi=200):
+    """Вырезает область изображения из PDF по координатам"""
+    x_start, y_start, x_end, y_end = coords
+
+    # Проверяем корректность координат
+    if x_end <= x_start or y_end <= y_start:
+        raise ValueError("Некорректные координаты области выделения")
+
+    page = pdf_doc.load_page(page_index)
+    pix = page.get_pixmap(dpi=dpi)
+    page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+    # Пересчёт координат из canvas → оригинальное изображение
+    inverse_scale = 1 / last_scale_factor
+    x0 = int(x_start * inverse_scale)
+    y0 = int(y_start * inverse_scale)
+    x1 = int(x_end * inverse_scale)
+    y1 = int(y_end * inverse_scale)
+
+    # Проверяем, чтобы координаты не выходили за границы изображения
+    x0 = max(0, min(x0, page_image.width - 1))
+    y0 = max(0, min(y0, page_image.height - 1))
+    x1 = max(1, min(x1, page_image.width))
+    y1 = max(1, min(y1, page_image.height))
+
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError("Некорректные координаты после масштабирования")
+
+    cropped = page_image.crop((x0, y0, x1, y1))
+    if cropped.size[0] == 0 or cropped.size[1] == 0:
+        raise ValueError("Выделенная область имеет нулевой размер")
+
+    return cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
+
+def recognize_with_selected_engine(image, engine):
+    """Распознает текст с использованием выбранного движка OCR"""
+    engine = engine.lower().strip()
+
+    if engine == "tesseract":
+        return pytesseract.image_to_string(image, lang="eng").strip()
+
+    if engine == "easyocr" and EASYOCR_AVAILABLE:
+        results = ocr_reader.readtext(image, detail=0, paragraph=False)
+        return " ".join(results).strip()
+
+    if engine == "paddleocr" and PADDLEOCR_AVAILABLE:
+        results = ocr_reader.predict(img=image, cls=True)
+        if results and isinstance(results[0], list):
+            return " ".join([line[1][0] for line in results[0]]).strip()
+        return ""
+
+    # Fallback на Tesseract, если движок неизвестен или недоступен
+    return pytesseract.image_to_string(image, lang="eng").strip()
+
+def recognize_area2(pdf_doc, page_index, coords, engine):
+    try:
+        cropped_image = extract_area_image_from_pdf(pdf_doc, page_index, coords)
+        if cropped_image is None or cropped_image.size == 0:
+            return ""
+        return recognize_with_selected_engine(cropped_image, engine)
+    except Exception as e:
+        logging.error(f"Ошибка при распознавании области: {e}", exc_info=True)
+        return ""
+
+def recognize_area(pdf_doc, page_index, coords, engine):
+    global recognition_results
+
+    try:
+        cropped_image = extract_area_image_from_pdf(pdf_doc, page_index, coords)
+        if cropped_image is None or cropped_image.size == 0:
+            return ""
+
+        recognized_text = recognize_with_selected_engine(cropped_image, engine)
+        formatted_text = format_extracted_text(recognized_text, page_index + 1)
+
+        # Сохраняем результаты
+        result = {
+            "page": page_index + 1,
+            "raw_text": recognized_text,
+            "formatted_text": formatted_text,
+            "coords": coords,
+            "engine": engine
+        }
+
+        # Обновляем или добавляем запись
+        if len(recognition_results) > page_index:
+            recognition_results[page_index] = result
+        else:
+            recognition_results.append(result)
+
+        # Вывод в консоль (можно закомментировать)
+        print(f"Страница {page_index + 1}: {formatted_text}")
+
+        return formatted_text
+
+    except Exception as e:
+        logging.error(f"Ошибка при распознавании области: {e}", exc_info=True)
+        return ""
 
 # Функция для перехода к следующей странице
 def next_page():
@@ -698,18 +1060,16 @@ def prev_page():
 
 
 # Функция увеличения масштаба
-def zoom_in():
-    global scale_percent
-    scale_percent += 10  # Увеличиваем на 10%
-    load_page()  # Перезагружаем страницу с новым масштабом
-
-
+# def zoom_in():
+#     global scale_percent
+#     scale_percent += 10  # Увеличиваем на 10%
+#     load_page()  # Перезагружаем страницу с новым масштабом
 # Функция уменьшения масштаба
-def zoom_out():
-    global scale_percent
-    if scale_percent > 10:  # Уменьшаем на 10% минимум
-        scale_percent -= 10
-        load_page()  # Перезагружаем страницу с новым масштабом
+# def zoom_out():
+#     global scale_percent
+#     if scale_percent > 10:  # Уменьшаем на 10% минимум
+#         scale_percent -= 10
+#         load_page()  # Перезагружаем страницу с новым масштабом
 
 
 # Функция для обновления поля с дефолтными координатами
@@ -729,48 +1089,63 @@ def validate_coordinates_format(coordinates_text):
 
 
 def zoom_canvas(event):
-    global canvas_scale, cropped_image, cropped_image_display, page_image
-    zoom_factor = 1.1 if event.delta > 0 else 0.9  # Увеличение или уменьшение масштаба
+    global canvas_scale, canvas, original_page_image, cropped_image_display
+
+    # Увеличение при прокрутке вверх, уменьшение — при прокрутке вниз
+    zoom_factor = 1.1 if event.delta > 0 else 0.9
     canvas_scale *= zoom_factor
 
-    if page_image:  # Проверка, что оригинальное обрезанное изображение существует
-        # Масштабирование изображения
-        new_width = int(page_image.width * canvas_scale)
-        new_height = int(page_image.height * canvas_scale)
-        scaled_image = page_image.resize((new_width, new_height), Image.LANCZOS)
+    # Проверка: изображение должно быть загружено
+    if original_page_image:
+        # Вычисляем новые размеры
+        new_width = int(original_page_image.width * canvas_scale)
+        new_height = int(original_page_image.height * canvas_scale)
 
-        # Обновление отображаемого изображения
+        # Масштабируем изображение
+        scaled_image = original_page_image.resize((new_width, new_height), Image.LANCZOS)
+
+        # Отображаем на холсте
         cropped_image_display = ImageTk.PhotoImage(image=scaled_image)
+        canvas.delete("all")  # Очищаем холст перед отрисовкой
         canvas.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-        canvas.image = (
-            cropped_image_display  # Сохранение ссылки для предотвращения сборки мусора
-        )
+        canvas.image = cropped_image_display  # Сохраняем ссылку, чтобы не удалялось
+        canvas.config(scrollregion=canvas.bbox(tk.ALL))  # Обновляем область прокрутки
+
+
+
+
+
+
 
 
 def zoom_canvas2(event):
-    global \
-        canvas2_scale, \
-        cropped_image, \
-        cropped_image_display, \
-        page_image, \
-        canvas2, \
-        canvas2_scale
-    zoom_factor = 1.1 if event.delta > 0 else 0.9  # Увеличение или уменьшение масштаба
-    canvas2_scale *= zoom_factor
+    global canvas2_scale, cropped_image
 
-    if cropped_image:  # Проверка, что оригинальное обрезанное изображение существует
-        # Масштабирование изображения
-        new_width = int(cropped_image.width * canvas2_scale)
-        new_height = int(cropped_image.height * canvas2_scale)
-        scaled_image = cropped_image.resize((new_width, new_height), Image.LANCZOS)
+    try:
+        if not hasattr(canvas2, 'image') or not canvas2.image or not cropped_image:
+            return
 
-        # Обновление отображаемого изображения
-        cropped_image_display = ImageTk.PhotoImage(image=scaled_image)
-        canvas2.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-        canvas2.image = (
-            cropped_image_display  # Сохранение ссылки для предотвращения сборки мусора
-        )
+        zoom_factor = 1.1 if event.delta > 0 else 0.9
+        new_scale = canvas2_scale * zoom_factor
 
+        # Ограничиваем масштаб между 50% и 500%
+        new_scale = max(0.5, min(new_scale, 5.0))
+
+        if new_scale != canvas2_scale:
+            canvas2_scale = new_scale
+            width = int(cropped_image.width * canvas2_scale)
+            height = int(cropped_image.height * canvas2_scale)
+
+            try:
+                scaled_img = cropped_image.resize((width, height), Image.LANCZOS)
+                canvas2.delete("all")
+                canvas2.image = ImageTk.PhotoImage(scaled_img)
+                canvas2.create_image(0, 0, anchor=tk.NW, image=canvas2.image)
+                canvas2.config(scrollregion=canvas2.bbox(tk.ALL))
+            except Exception as e:
+                print(f"Ошибка масштабирования: {e}")
+    except Exception as e:
+        print(f"Ошибка в zoom_canvas2: {e}")
 
 def update_coordinates(event):
     global x_start, y_start, x_end, y_end, coordinates_entry
@@ -803,18 +1178,37 @@ def save_env(x_start, y_start, x_end, y_end, regex_pattern):
 
 
 # Функция для чтения параметров из .env файла
-def read_env() -> object:
-    global x_start, y_start, x_end, y_end, regex_pattern, regex_pattern_entry
-    load_dotenv(ENV_FILE)
-    # Загрузка значений из .env в одноименные переменные
-    x_start = int(os.getenv("x_start", DEFAULT_COORDINATES2["x_start"]))
-    y_start = int(os.getenv("y_start", DEFAULT_COORDINATES2["y_start"]))
-    x_end = int(os.getenv("x_end", DEFAULT_COORDINATES2["x_end"]))
-    y_end = int(os.getenv("y_end", DEFAULT_COORDINATES2["y_end"]))
-    regex_pattern = os.getenv("regex_pattern", DEFAULT_COORDINATES2["regex_pattern"])
-    # regex_pattern_entry.insert(0, regex_pattern)  # Пример шаблона
-    print(x_start, y_start, x_end, y_end)
+def read_env():
+    global x_start, y_start, x_end, y_end, regex_pattern, selected_areas
 
+    load_dotenv(ENV_FILE)
+    try:
+        x_start = int(os.getenv("x_start", DEFAULT_COORDINATES2["x_start"]))
+        y_start = int(os.getenv("y_start", DEFAULT_COORDINATES2["y_start"]))
+        x_end = int(os.getenv("x_end", DEFAULT_COORDINATES2["x_end"]))
+        y_end = int(os.getenv("y_end", DEFAULT_COORDINATES2["y_end"]))
+        regex_pattern = os.getenv("regex_pattern", DEFAULT_COORDINATES2["regex_pattern"])
+
+        # Обновляем selected_areas
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
+
+        # Обновляем поле ввода координат
+        if 'coordinates_entry' in globals():
+            coordinates_entry.delete(0, tk.END)
+            coordinates_entry.insert(0, f"{x_start},{y_start},{x_end},{y_end}")
+
+        print(f"Загружены координаты из .env: x={x_start}, y={y_start}, w={x_end - x_start}, h={y_end - y_start}")
+
+    except Exception as e:
+        print(f"[ERROR] Ошибка при загрузке координат из .env: {e}")
+        # Устанавливаем значения по умолчанию
+        x_start, y_start, x_end, y_end = (
+            DEFAULT_COORDINATES2["x_start"],
+            DEFAULT_COORDINATES2["y_start"],
+            DEFAULT_COORDINATES2["x_end"],
+            DEFAULT_COORDINATES2["y_end"]
+        )
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
 
 # Обработчик выхода
 def on_closing():
@@ -851,7 +1245,7 @@ def save_current_page():
                 return
 
             page = pdf.load_page(current_page)
-            pix = page.get_pixmap(dpi=150)
+            pix = page.get_pixmap(dpi=200)
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
             output_file_name = f"page_{current_page + 1}.jpg"
@@ -861,30 +1255,21 @@ def save_current_page():
         logging.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
 
 
+
 def create_interface():
-    global \
-        root, \
-        entry_pdf_path, \
-        canvas, \
-        label_page_number, \
-        label_page_size, \
-        label_scale, \
-        coordinates_entry
-    global \
-        canvas2, \
-        canvas2_scale, \
-        label_coordinates, \
-        text_output, \
-        regex_pattern_entry, \
-        recognition_mode
+    global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
+    global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
+    global ocr_engine_var, table_frame, tree  # Добавляем tree в глобальные переменные
+    global selected_areas
+    global debug_mode
 
     # Создание интерфейса
     root = tk.Tk()
     root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
-    # Устанавливаем размеры окна (например, 400x300)
-    window_width = 800
+    # Устанавливаем размеры окна
+    window_width = 1600
     window_height = 800
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
@@ -892,136 +1277,173 @@ def create_interface():
     y = (screen_height // 2) - (window_height // 2)
     root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
-    #################################################################
-
     # Верхняя рамка
     frame_top = tk.Frame(root)
     frame_top.pack(pady=10, padx=10, fill="x")
-    # Настройка столбцов для растягивания
-    frame_top.columnconfigure(0, weight=1)
-    frame_top.columnconfigure(1, weight=3)
-    frame_top.columnconfigure(2, weight=1)
-    # Группировка элементов в верхней рамке
-    elements_top = [
-        (tk.Button(frame_top, text="Выбрать PDF", command=select_pdf), 0, 0),
-        (tk.Entry(frame_top, width=50), 0, 1),
-        (
-            tk.Button(
-                frame_top, text="Запуск распознавания", command=start_recognition_thread
-            ),
-            0,
-            2,
-        ),
-    ]
-    for element, row, col in elements_top:
-        element.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
-    entry_pdf_path = elements_top[1][
-        0
-    ]  # Привязка поля ввода для глобального использования
+    frame_top.columnconfigure(1, weight=1)
 
-    #################################################################
+    # Создаем стиль для кнопок с фиксированной шириной
+    button_style = {'width': 14, 'anchor': 'center'}
 
-    # Рамка для навигации
-    frame_navigation = tk.Frame(root)
-    frame_navigation.pack(pady=5, padx=10, fill="x")
-    elements_navigation = [
-        (
-            tk.Button(frame_navigation, text="Предыдущая страница", command=prev_page),
-            0,
-            0,
-        ),
-        (
-            tk.Button(frame_navigation, text="Следующая страница", command=next_page),
-            0,
-            1,
-        ),
-        (tk.Button(frame_navigation, text="-10%", command=zoom_out), 0, 2),
-        (tk.Button(frame_navigation, text="+10%", command=zoom_in), 0, 3),
-        (tk.Label(frame_navigation, text=" "), 0, 4),  # Разделитель между кнопками
-        (tk.Button(frame_navigation, text="Проверить", command=check_image), 0, 5),
-        (
-            tk.Button(
-                frame_navigation,
-                text="Сохранить текущий лист",
-                command=save_current_page,
-            ),
-            0,
-            6,
-        ),
-    ]
-    for element, row, col in elements_navigation:
-        element.grid(row=row, column=col, padx=5, pady=5)
+    btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, **button_style)
+    btn_load_registry = tk.Button(frame_top, text="Выбрать реестр", command=load_registry, **button_style)
 
-    # Переменная для хранения выбранного режима распознавания
+    # btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, width=14)
+    # btn_load_registry = tk.Button(frame_top, text="Выбрать реестр", command=load_registry, width=14)
+    entry_pdf_path = tk.Entry(frame_top, width=150)
+    btn_recognize = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread)
+    btn_match = tk.Button(frame_top, text="Сопоставить", command=match_with_expected)
+    # btn_save = tk.Button(frame_top, text="Сохранить результаты", command=save_results)
+    btn_save = tk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save))
+
+    btn_select_pdf.grid(row=0, column=0, padx=5, pady=5)
+    btn_load_registry.grid(row=0, column=1, padx=5, pady=5)
+    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5)
+    btn_recognize.grid(row=0, column=3, padx=5, pady=5)
+    btn_match.grid(row=0, column=4, padx=5, pady=5)
+    btn_save.grid(row=0, column=5, padx=5, pady=5)
+
+
+
+    # Главная рамка (все элементы в одной строке)
+    frame_main = tk.Frame(root)
+    frame_main.pack(pady=5, padx=10, fill="x")
+
+    # ===== 1. Левый блок (навигация + чекбокс) =====
+    frame_left = tk.Frame(frame_main)
+    frame_left.pack(side=tk.LEFT, fill="x", expand=False)
+
+    # Навигационные кнопки (одинаковой ширины)
+    button_width = 15  # Ширина всех кнопок
+    btn_prev = tk.Button(frame_left, text="← Назад", command=prev_page, width=button_width)
+    btn_next = tk.Button(frame_left, text="Вперед →", command=next_page, width=button_width)
+    btn_check = tk.Button(frame_left, text="Проверить лист", command=check_image, width=button_width)
+    btn_save = tk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
+
+
+    # Чекбоксы
     recognition_mode = tk.IntVar(value=0)
+    adv_checkbutton = tk.Checkbutton(frame_left, text="Расш. режим", variable=recognition_mode)
 
-    # Создание и размещение Checkbutton отдельно
-    adv_checkbutton = tk.Checkbutton(
-        frame_navigation, text="Расш.Режим", variable=recognition_mode
-    )
-    adv_checkbutton.grid(row=0, column=7, padx=5, pady=5)
+    debug_mode = tk.BooleanVar(value=False)
+    debug_checkbutton = tk.Checkbutton(frame_left, text="Debug", variable=debug_mode, command=update_debug_mode)
 
-    # Настройка столбцов для растягивания
-    frame_navigation.columnconfigure(1, weight=1)
+    # Упаковка левого блока
+    btn_prev.pack(side=tk.LEFT, padx=2)
+    btn_next.pack(side=tk.LEFT, padx=2)
+    btn_check.pack(side=tk.LEFT, padx=2)
+    btn_save.pack(side=tk.LEFT, padx=2)
+    adv_checkbutton.pack(side=tk.LEFT, padx=2)
+    debug_checkbutton.pack(side=tk.LEFT, padx=2)
 
-    #################################################################
+    # Первый разделитель
+    separator1 = ttk.Separator(frame_main, orient="vertical")
+    separator1.pack(side=tk.LEFT, fill="y", padx=5)
 
-    # Рамка для ввода шаблона и координат
-    frame_pattern = tk.Frame(root)
-    frame_pattern.pack(pady=5, padx=10, fill="x")
+    # ===== 2. Центральный блок (OCR) =====
+    frame_center = tk.Frame(frame_main)
+    frame_center.pack(side=tk.LEFT, fill="x", expand=True)
 
-    # Настройка столбцов для растягивания
-    frame_pattern.columnconfigure(1, weight=1)
+    # Контейнер для элементов OCR (чтобы разместить их в одну строку)
+    ocr_container = tk.Frame(frame_center)
+    ocr_container.pack(fill="x", expand=True)
 
-    # Группировка элементов в рамке
-    elements_pattern = [
-        (tk.Label(frame_pattern, text="Шаблон поиска2:"), 0, 0),
-        (tk.Entry(frame_pattern, width=20), 0, 1),
-        (tk.Entry(frame_pattern, width=20), 0, 2),
-        (tk.Label(frame_pattern, text="Координаты: -"), 0, 3),
-    ]
+    # Элементы OCR
+    lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
+    ocr_engine_var = tk.StringVar(value="Tesseract")
+    ocr_options = ["Tesseract", "EasyOCR", "PaddleOCR"]
+    if EASYOCR_AVAILABLE: ocr_options.append("EasyOCR")
+    if PADDLEOCR_AVAILABLE: ocr_options.append("PaddleOCR")
+    ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
+    btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
 
-    for element, row, col in elements_pattern:
-        element.grid(row=row, column=col, padx=5, pady=5, sticky="ew")
+    # Упаковка элементов OCR рядом
+    lbl_ocr.pack(side=tk.LEFT, padx=2)
+    ocr_menu.pack(side=tk.LEFT, padx=2)
+    btn_init_ocr.pack(side=tk.LEFT, padx=2)
 
-    # Инициализация элементов для дальнейшего использования
-    regex_pattern_entry = elements_pattern[1][0]  # Поле для ввода шаблона
-    coordinates_entry = elements_pattern[2][0]  # Поле для ввода координат
+    # Второй разделитель
+    separator2 = ttk.Separator(frame_main, orient="vertical")
+    separator2.pack(side=tk.LEFT, fill="y", padx=5)
 
-    # Вставка начального значения в поле ввода шаблона
+    # ===== 3. Правый блок (шаблон + координаты) =====
+    frame_right = tk.Frame(frame_main)
+    frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
+
+    # Элементы ввода (расширенные поля)
+    lbl_pattern = tk.Label(frame_right, text="Шаблон:")
+    regex_pattern_entry = tk.Entry(frame_right, width=25)  # Увеличенная ширина
+    coordinates_entry = tk.Entry(frame_right, width=20)  # Увеличенная ширина
+
+    # Упаковка правого блока
+    lbl_pattern.pack(side=tk.LEFT, padx=2)
+    regex_pattern_entry.pack(side=tk.LEFT, padx=2)
+    coordinates_entry.pack(side=tk.LEFT, padx=2)
+
+    # Инициализация полей
     regex_pattern_entry.insert(0, regex_pattern)
-
-    # Привязка события для поля координат
     coordinates_entry.bind("<KeyRelease>", update_coordinates)
 
-    #################################################################
 
-    # Создание холстов
+
+    # Создание холстов и таблицы
     frame_canvases = tk.Frame(root)
     frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
 
     canvas_width = 750 // 2
     canvas_height = 500
 
-    canvas = tk.Canvas(
-        frame_canvases, width=canvas_width, height=canvas_height, bg="grey"
-    )
+    # Левый холст (PDF)
+    canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
     canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
 
-    canvas2 = tk.Canvas(
-        frame_canvases, width=canvas_width, height=canvas_height, bg="grey"
-    )
+    # Правый холст (выделенная область)
+    canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
     canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
 
+    # Обёртка для таблицы Treeview
+    table_frame = tk.Frame(frame_canvases)
+    table_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # Создание Treeview с прокруткой
+    tree_scroll = tk.Scrollbar(table_frame)
+    tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
+    tree.pack(fill=tk.BOTH, expand=True)
+
+    tree_scroll.config(command=tree.yview)
+
+    # Настройка колонок
+    tree["columns"] = ("number", "expected", "recognized", "match", "score")
+    tree.column("#0", width=0, stretch=tk.NO)  # Скрытая колонка
+    tree.column("number", width=50, anchor=tk.CENTER)
+    tree.column("expected", width=150, anchor=tk.W)
+    tree.column("recognized", width=150, anchor=tk.W)
+    tree.column("match", width=150, anchor=tk.W)
+    tree.column("score", width=100, anchor=tk.CENTER)
+
+    # Заголовки
+    tree.heading("number", text="№")
+    tree.heading("expected", text="Контейнер из XLS")
+    tree.heading("recognized", text="Контейнер распознанный")
+    tree.heading("match", text="Совпадение")
+    tree.heading("score", text="Коэффициент")
+
+    # Привязка события двойного клика для перехода к странице
+    # tree.bind("<Double-1>", lambda e: on_tree_double_click())
+    # tree.bind("<Double-1>", on_cell_double_click)
+    # tree.bind("<Button-1>", on_tree_click)
+    tree.bind("<Button-1>", on_tree_click)
+
+    # Настройка обработчиков событий для холстов
     canvas.bind("<Button-1>", define_coordinates)
     canvas.bind("<B1-Motion>", draw_rectangle)
     canvas.bind("<ButtonRelease-1>", finish_coordinates)
-
-    # Масштаб
-    canvas2_scale = 1.0
-
+    canvas.bind("<MouseWheel>", zoom_canvas)
     canvas2.bind("<MouseWheel>", zoom_canvas2)
 
+    # Текстовое поле вывода
     text_output = scrolledtext.ScrolledText(root, width=100, height=10)
     text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
     text_output.config(state="normal")
@@ -1030,28 +1452,257 @@ def create_interface():
     set_default_coordinates(coordinates_entry)
 
 
+
+def update_debug_mode():
+    """Обновляет режим отладки при изменении чекбокса"""
+    global debug_mode
+    print(f"Debug mode: {debug_mode.get()}")
+
+
+def on_tree_click(event):
+    """Обработчик кликов по Treeview"""
+    global last_click_time
+
+    # Определяем элемент, по которому кликнули
+    region = tree.identify_region(event.x, event.y)
+    if region != "cell":
+        return
+
+    current_time = event.time
+    is_double_click = (current_time - last_click_time) < DOUBLE_CLICK_DELAY
+    last_click_time = current_time
+
+    item = tree.identify_row(event.y)
+    column = tree.identify_column(event.x)
+
+    # Всегда выполняем переход к странице
+    goto_page(item)
+
+    # Если это двойной клик - дополнительно открываем редактор
+    if is_double_click and column == "#4":  # Только для столбца "Совпадение"
+        edit_cell(item, column)
+
+def goto_page(item):
+    """Переход к указанной странице"""
+    global current_page
+    values = tree.item(item, 'values')
+    if values and values[0]:  # values[0] - номер страницы
+        try:
+            current_page = int(values[0]) - 1
+            load_page()
+        except ValueError:
+            pass
+
+def edit_cell(item, column):
+    """Редактирование ячейки"""
+    x, y, width, height = tree.bbox(item, "#4")
+    current_value = tree.item(item, "values")[3]  # Столбец "Совпадение"
+
+    # Создаем поле для редактирования
+    entry_edit = tk.Entry(tree, borderwidth=0, font=('Arial', 10))
+    entry_edit.place(x=x, y=y, width=width, height=height, anchor=tk.NW)
+    entry_edit.insert(0, current_value)
+    entry_edit.select_range(0, tk.END)
+    entry_edit.focus_set()
+
+    def save_edit(event=None):
+        """Сохранение отредактированного значения"""
+        new_value = entry_edit.get()
+        values = list(tree.item(item, "values"))
+        values[3] = new_value
+
+        # Пересчитываем коэффициент
+        recognized = values[2] if len(values) > 2 else ""
+        if recognized and new_value:
+            score = is_similar_ratio(recognized, new_value)
+            values[4] = f"{score:.2f}"
+            update_row_color(item, score)
+
+        tree.item(item, values=values)
+        entry_edit.destroy()
+
+    entry_edit.bind("<Return>", save_edit)
+    entry_edit.bind("<FocusOut>", save_edit)
+
+def update_row_color(item, score):
+    """Обновление цвета строки"""
+    if score == 1.0:
+        tree.tag_configure("exact", background="#a8e6a8")
+        tree.item(item, tags=("exact",))
+    elif score >= 0.7:
+        tree.tag_configure("partial", background="#fff8a8")
+        tree.item(item, tags=("partial",))
+    else:
+        tree.tag_configure("none", background="#ffaaaa")
+        tree.item(item, tags=("none",))
+
+
+# def update_scroll_region(event=None):
+#     table_canvas.configure(scrollregion=table_canvas.bbox("all"))
+
+def load_registry():
+    global table_entries, tree
+
+    file_path = filedialog.askopenfilename(filetypes=[("Excel or CSV", "*.xlsx *.csv")])
+    if not file_path:
+        return
+
+    container_data = []
+
+    try:
+        if file_path.endswith(".xlsx"):
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            sheet = wb.active
+            for row in sheet.iter_rows(min_row=5):  # начиная с 5-й строки
+                cell = row[3].value  # Столбец D (индекс 3)
+                if cell and isinstance(cell, str) and "/" in cell:
+                    container_number = cell.split("/")[-1].strip()
+                    container_data.append(container_number)
+
+        elif file_path.endswith(".csv"):
+            with open(file_path, encoding='utf-8') as f:
+                reader = csv.reader(f)
+                for idx, row in enumerate(reader):
+                    if idx < 3:
+                        continue
+                    if len(row) >= 4 and "/" in row[3]:
+                        container_number = row[3].split("/")[-1].strip()
+                        container_data.append(container_number)
+
+        else:
+            messagebox.showerror("Ошибка", "Неподдерживаемый формат файла")
+            return
+
+        # Обновляем только столбец "Контейнер из XLS" для существующих строк
+        for i, code in enumerate(container_data):
+            if i < len(table_entries):
+                # Обновляем данные в table_entries
+                table_entries[i]["code"] = code
+
+                # Получаем текущие значения строки
+                current_values = list(tree.item(table_entries[i]["item_id"], 'values'))
+                # Обновляем только второй столбец (индекс 1)
+                current_values[1] = code
+                # Устанавливаем обновленные значения
+                tree.item(table_entries[i]["item_id"], values=current_values)
+
+        messagebox.showinfo("Успех", f"Загружено {len(container_data)} контейнеров")
+
+    except Exception as e:
+        logging.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
+        messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
+
+
+def init_ocr_engine():
+    global ocr_reader, EASYOCR_AVAILABLE, PADDLEOCR_AVAILABLE
+    selected_engine = ocr_engine_var.get()
+
+    try:
+        if selected_engine == "EasyOCR":
+            import easyocr
+            ocr_reader = easyocr.Reader(['en'])  # Загрузка моделей
+            EASYOCR_AVAILABLE = True
+            messagebox.showinfo("Успех", "EasyOCR инициализирован!")
+
+        elif selected_engine == "PaddleOCR":
+            from paddleocr import PaddleOCR
+            ocr_reader = PaddleOCR(use_angle_cls=True, lang='en')
+            PADDLEOCR_AVAILABLE = True
+            messagebox.showinfo("Успех", "PaddleOCR инициализирован!")
+
+        else:
+            ocr_reader = None
+            messagebox.showinfo("Инфо", "Используется Tesseract")
+
+    except ImportError as e:
+        messagebox.showerror("Ошибка",
+                           f"{selected_engine} не установлен!\n"
+                           f"Установите: pip install {selected_engine.lower()}")
+    except Exception as e:
+        messagebox.showerror("Ошибка", f"Не удалось инициализировать {selected_engine}: {str(e)}")
+        ocr_reader = None
+
+
+def update_table(data, tree_widget):
+    """Обновление таблицы Treeview"""
+    global tree, table_entries, expected_containers
+
+    # Очищаем таблицу
+    for item in tree_widget.get_children():
+        tree_widget.delete(item)
+
+    table_entries = []
+    expected_containers = [code for _, code in data]
+
+    for number, code in data:
+        # Добавляем строку в Treeview
+        item_id = tree_widget.insert("", tk.END, values=(number, code, "", "", ""))
+
+        # Сохраняем данные для дальнейшего использования
+        entry = {
+            "index": number,
+            "code": code,
+            "recognized": "",
+            "item_id": item_id  # Сохраняем ID элемента Treeview
+        }
+        table_entries.append(entry)
+
+
+def on_match_edit(row_index):
+    """Обработчик редактирования поля совпадения"""
+    global table_entries
+    if 0 <= row_index < len(table_entries):
+        new_value = table_entries[row_index]["match_var"].get()
+        # Здесь можно добавить логику обработки изменений
+        print(f"Изменено совпадение для строки {row_index + 1}: {new_value}")
+        # Обновляем расчет коэффициента
+        update_score(row_index)
+
+
+def update_score(row_index):
+    """Обновляет коэффициент совпадения"""
+    global table_entries
+    entry = table_entries[row_index]
+    recognized = entry["recognized"]
+    match = entry["match_var"].get()
+
+    if recognized and match:
+        score = is_similar_ratio(recognized, match)
+        entry["label_score"].config(text=f"{score:.2f}")
+        # Изменяем цвет в зависимости от результата
+        bg_color = "lightgreen" if score >= 0.9 else "khaki" if score >= 0.7 else "tomato"
+        entry["label_score"].config(bg=bg_color)
+
+
 # Функция для проверки обновлений
 def check_for_updates():
-    # URL для получения информации о релизах
-    repo_url = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF-Build/releases/latest"
+    threading.Thread(target=_check_updates, daemon=True).start()
 
-    response = requests.get(repo_url)
-    if response.status_code == 200:
-        latest_release = response.json()
-        latest_version = latest_release["tag_name"].lstrip("v")  # Убираем префикс 'v'
-        download_url = latest_release["assets"][0]["browser_download_url"]
+def _check_updates():
+    try:
+        # URL для получения информации о релизах
+        repo_url = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF-Build/releases/latest"
+        response = requests.get(repo_url, timeout=5)
 
-        # Сравниваем текущую версию с последней на GitHub
-        if compare_versions(__version__, latest_version):
-            text_output.delete(1.0, tk.END)
-            text_output.insert(
-                tk.END,
-                f"Появилась новая версия {latest_version}, рекомендуется обновиться\n",
-            )
-            text_output.insert(tk.END, download_url)
-        else:
-            text_output.delete(1.0, tk.END)
-            text_output.insert(tk.END, "У вас последняя версия.")
+        response = requests.get(repo_url)
+        if response.status_code == 200:
+            latest_release = response.json()
+            latest_version = latest_release["tag_name"].lstrip("v")  # Убираем префикс 'v'
+            download_url = latest_release["assets"][0]["browser_download_url"]
+
+            # Сравниваем текущую версию с последней на GitHub
+            if compare_versions(__version__, latest_version):
+                text_output.delete(1.0, tk.END)
+                text_output.insert(
+                    tk.END,
+                    f"Появилась новая версия {latest_version}, рекомендуется обновиться\n",
+                )
+                text_output.insert(tk.END, download_url)
+            else:
+                text_output.delete(1.0, tk.END)
+                text_output.insert(tk.END, "У вас последняя версия.")
+    except Exception:
+        pass  # Не блокировать интерфейс при ошибках
 
 
 # Функция для сравнения версий
@@ -1072,9 +1723,25 @@ def compare_versions(current_version: str, latest_version: str) -> bool:
     return len(current) < len(latest)
 
 
+def check_dependencies():
+    missing = []
+    if not EASYOCR_AVAILABLE:
+        missing.append("easyocr (pip install easyocr)")
+    if not PADDLEOCR_AVAILABLE:
+        missing.append("paddleocr (pip install paddleocr paddlepaddle)")
+
+    if missing:
+        messagebox.showwarning(
+            "Предупреждение",
+            f"Следующие OCR-движки недоступны:\n{', '.join(missing)}\n\n"
+            "Вы можете установить их командой:\npip install easyocr paddleocr paddlepaddle"
+        )
+
+
 def main():
     """Основная функция для запуска приложения."""
     try:
+        # check_dependencies()
         set_tesseract_path()
         read_env()
         create_interface()  # Вызов функции для создания интерфейса
