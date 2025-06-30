@@ -1756,3 +1756,4 @@ def main():
 if __name__ == "__main__":
     main()
     # cProfile.run('main()', 'output.prof')  # Запуск профилирования
+
