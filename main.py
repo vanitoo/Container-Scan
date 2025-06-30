@@ -26,39 +26,39 @@ PADDLEOCR_AVAILABLE = False
 
 # Глобальные переменные (лучше использовать класс для состояния)
 DEFAULT_COORDINATES2 = {
-    "x_start": 27,
-    "y_start": 297,
-    "x_end": 81,
-    "y_end": 318,
+    "x_start": 20,
+    "y_start": 298,
+    "x_end": 92,
+    "y_end": 345,
     "regex_pattern": "^[A-Z]{3}U\d{7}$",
 }
 
-current_page = 0
+global table_frame, debug_mode
+
+original_page_image = None
 pdf_path = None
-pdf = None
 image_display = None
 rect_id = None
+text_output = None
+# pdf = None
+pdf_doc = None
 scale_percent = 100  # Масштаб для обработки координат
 ENV_FILE = ".env"
-text_output = None
-reader = None
+
+# reader = None
 # Добавьте в раздел глобальных переменных
 ocr_engine = "Tesseract"  # По умолчанию
 ocr_reader = None  # Для хранения инициализированного ридера EasyOCR/PaddleOCR
-
+current_page = 0
 canvas_scale = 1.0
-original_page_image = None
-global table_frame
+
 table_entries = []  # глобальная переменная — таблица как список словарей
 expected_containers = []  # список контейнеров из XLS
-pdf_doc = None
 selected_areas = []
 recognition_results = []  # Будет хранить словари с результатами для каждой страницы
-
-last_click_item = None
 last_click_time = 0
 DOUBLE_CLICK_DELAY = 300  # Задержка для двойного клика в миллисекундах
-global debug_mode
+
 
 # Настройка логирования
 logging.basicConfig(
@@ -1605,21 +1605,23 @@ def init_ocr_engine():
             messagebox.showinfo("Успех", "EasyOCR инициализирован!")
 
         elif selected_engine == "PaddleOCR":
+            import paddle  # noqa
             from paddleocr import PaddleOCR
             ocr_reader = PaddleOCR(use_angle_cls=True, lang='en')
             PADDLEOCR_AVAILABLE = True
             messagebox.showinfo("Успех", "PaddleOCR инициализирован!")
-
         else:
             ocr_reader = None
             messagebox.showinfo("Инфо", "Используется Tesseract")
 
     except ImportError as e:
-        messagebox.showerror("Ошибка",
-                           f"{selected_engine} не установлен!\n"
-                           f"Установите: pip install {selected_engine.lower()}")
+        error_msg = {
+            "EasyOCR": "pip install easyocr",
+            "PaddleOCR": "pip install paddlepaddle paddleocr"
+        }.get(selected_engine, f"pip install {selected_engine.lower()}")
+        logging.error("Ошибка", f"Не хватает зависимостей!\nУстановите:\n{error_msg}")
     except Exception as e:
-        messagebox.showerror("Ошибка", f"Не удалось инициализировать {selected_engine}: {str(e)}")
+        logging.error("Ошибка", f"Не удалось инициализировать {selected_engine}: {str(e)}")
         ocr_reader = None
 
 
