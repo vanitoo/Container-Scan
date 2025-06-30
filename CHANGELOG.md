@@ -1,5 +1,5 @@
 Changelog
-## [unreleased]
+## [1.2.5] - 2025-05-12
 
 ### Refactor
 
