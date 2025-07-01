@@ -17,6 +17,7 @@ import pytesseract
 import requests
 from PIL import Image, ImageTk
 from dotenv import load_dotenv, set_key
+from auto_updater import AutoUpdater
 
 from version import __version__  # Импортируем номер версии
 
@@ -59,7 +60,6 @@ recognition_results = []  # Будет хранить словари с резу
 last_click_time = 0
 DOUBLE_CLICK_DELAY = 300  # Задержка для двойного клика в миллисекундах
 
-
 # Настройка логирования
 logging.basicConfig(
     filename="app.log",
@@ -68,6 +68,11 @@ logging.basicConfig(
 )
 
 
+def toggle_extra_options():
+    if extra_options_visible.get():
+        extra_frame.pack(fill="x", padx=10, pady=5)
+    else:
+        extra_frame.pack_forget()
 
 def is_similar_ratio(a, b):
     return SequenceMatcher(None, a, b).ratio()
@@ -119,6 +124,53 @@ def match_with_expected():
         else:  # Нет совпадения
             tree.tag_configure("no_match", background="#ffaaaa")  # Светло-красный
             tree.item(entry["item_id"], tags=("no_match",))
+
+def match_with_expected3():
+    global tree
+
+    items = tree.get_children()
+
+    for i in range(len(items)):
+        item_i = items[i]
+        values_i = list(tree.item(item_i, 'values'))
+        recognized = values_i[2]  # Распознанный контейнер
+
+        if not recognized:
+            continue
+
+        # Ищем точное совпадение recognized с любым "Контейнер из XLS"
+        for j in range(len(items)):
+            item_j = items[j]
+            if i == j:
+                continue
+
+            values_j = list(tree.item(item_j, 'values'))
+            expected = values_j[1]  # Контейнер из XLS
+
+            if expected == recognized:
+                # Меняем строки местами (все 5 колонок)
+                temp = values_i.copy()
+                values_i = values_j.copy()
+                values_j = temp
+
+                # Обновляем Treeview
+                tree.item(item_i, values=values_i)
+                tree.item(item_j, values=values_j)
+
+                # Цвет строки i (теперь в ней совпадение 100%)
+                tree.tag_configure("exact_match", background="#a8e6a8")
+                tree.item(item_i, tags=("exact_match",))
+                break  # нашли — выходим из j-цикла
+
+        # Если после обмена строки совпадают — вычисляем коэффициент
+        values_i = list(tree.item(item_i, 'values'))
+        if values_i[1] and values_i[2]:
+            score = is_similar_ratio(values_i[1], values_i[2])
+            values_i[3] = values_i[1]  # Совпадение
+            values_i[4] = f"{score:.2f}"
+            tree.item(item_i, values=values_i)
+
+
 
 def safe_execute(func):
     """Декоратор для оборачивания функций с обработкой ошибок и логированием."""
@@ -247,6 +299,7 @@ def select_pdf():
             current_page = 0
 
             load_page()
+
     except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
         logging.exception("Ошибка выбора PDF")
@@ -632,16 +685,20 @@ def _save_results_worker(btn):
             match = tree.item(entry['item_id'], 'values')[3]  # Значение из столбца "Совпадение"
             filename = match if match else recognized if recognized else f"page_{i + 1}"
 
-            base_path = os.path.join(output_dir, f"{i + 1}_{filename}")
-            page_image.save(f"{base_path}_full.jpg")
+            # base_path = os.path.join(output_dir, f"{i + 1}_{filename}")
+
+            output_dir = os.path.dirname(entry_pdf_path.get())
+            # output_file = os.path.join(output_dir, f"{i + 1}_{filename}_full")
+            output_file = os.path.join(output_dir, f"{filename}")
+            page_image.save(f"{output_file}.jpg")
 
             if debug_mode.get():
                 if hasattr(canvas2, 'image') and canvas2.image:
-                    cropped_image.save(f"{base_path}_cropped.jpg")
+                    cropped_image.save(f"{output_file}_cropped.jpg")
 
                 if i < len(recognition_results):
                     result = recognition_results[i]
-                    with open(f"{base_path}_info.txt", "w", encoding="utf-8") as f:
+                    with open(f"{output_file}_info.txt", "w", encoding="utf-8") as f:
                         f.write(f"Страница: {result['page']}\n")
                         f.write(f"Координаты: {result['coords']}\n")
                         f.write(f"Движок OCR: {result['engine']}\n")
@@ -650,8 +707,6 @@ def _save_results_worker(btn):
                         f.write("\n\n--- Форматированный текст ---\n")
                         f.write(result['formatted_text'])
 
-                # with open(f"{base_path}.txt", "w", encoding="utf-8") as f:
-                #     f.write(recognized)
 
         # Закрываем прогресс-бар и показываем сообщение
         progress.destroy()
@@ -1248,20 +1303,33 @@ def save_current_page():
             pix = page.get_pixmap(dpi=200)
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            output_file_name = f"page_{current_page + 1}.jpg"
-            page_image.save(output_file_name)
-            messagebox.showinfo("Успех", f"Страница сохранена как {output_file_name}")
+            # Берем имя из распознанного или совпадения
+            recognized = table_entries[current_page].get('recognized', '')
+            match = tree.item(table_entries[current_page]['item_id'], 'values')[3]
+            filename = match or recognized or f"page_{current_page + 1}"
+
+            output_dir = os.path.dirname(entry_pdf_path.get())
+            output_file = os.path.join(output_dir, f"{current_page + 1}_{filename}")
+            page_image.save(f"{output_file}_full.jpg")
+
+            if debug_mode.get():
+                if hasattr(canvas2, 'image') and canvas2.image:
+                    cropped_image.save(f"{output_file}_cropped.jpg")
+
+            messagebox.showinfo("Успех", f"Страница сохранена как {output_file}_full.jpg")
+
     except Exception as e:
         logging.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
 
 
 
-def create_interface():
+def create_interface2():
     global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
     global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
     global ocr_engine_var, table_frame, tree  # Добавляем tree в глобальные переменные
     global selected_areas
     global debug_mode
+    global extra_options_visible, extra_frame, extra_mode, frame_extra
 
     # Создание интерфейса
     root = tk.Tk()
@@ -1279,32 +1347,29 @@ def create_interface():
 
     # Верхняя рамка
     frame_top = tk.Frame(root)
-    frame_top.pack(pady=10, padx=10, fill="x")
-    frame_top.columnconfigure(1, weight=1)
+    # frame_top.pack(pady=10, padx=10, fill="x")
+    frame_top.pack(fill='x', expand=True)
+    frame_top.columnconfigure(2, weight=1)
 
     # Создаем стиль для кнопок с фиксированной шириной
-    button_style = {'width': 14, 'anchor': 'center'}
+    button_style = {'width': 20, 'anchor': 'center'}
 
     btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, **button_style)
-    btn_load_registry = tk.Button(frame_top, text="Выбрать реестр", command=load_registry, **button_style)
-
-    # btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, width=14)
-    # btn_load_registry = tk.Button(frame_top, text="Выбрать реестр", command=load_registry, width=14)
-    entry_pdf_path = tk.Entry(frame_top, width=150)
-    btn_recognize = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread)
-    btn_match = tk.Button(frame_top, text="Сопоставить", command=match_with_expected)
-    # btn_save = tk.Button(frame_top, text="Сохранить результаты", command=save_results)
-    btn_save = tk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save))
+    btn_load_registry = tk.Button(frame_top, text="Выбрать XLS", command=load_registry, **button_style)
+    entry_pdf_path = tk.Entry(frame_top)
+    btn_recognize = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread, **button_style)
+    btn_match = tk.Button(frame_top, text="Сопоставить", command=match_with_expected, **button_style)
+    btn_save = tk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save), **button_style)
 
     btn_select_pdf.grid(row=0, column=0, padx=5, pady=5)
     btn_load_registry.grid(row=0, column=1, padx=5, pady=5)
-    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5)
+    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5, sticky='we')
     btn_recognize.grid(row=0, column=3, padx=5, pady=5)
     btn_match.grid(row=0, column=4, padx=5, pady=5)
     btn_save.grid(row=0, column=5, padx=5, pady=5)
 
 
-
+#################
     # Главная рамка (все элементы в одной строке)
     frame_main = tk.Frame(root)
     frame_main.pack(pady=5, padx=10, fill="x")
@@ -1322,26 +1387,100 @@ def create_interface():
 
 
     # Чекбоксы
-    recognition_mode = tk.IntVar(value=0)
-    adv_checkbutton = tk.Checkbutton(frame_left, text="Расш. режим", variable=recognition_mode)
+    # recognition_mode = tk.IntVar(value=0)
+    # adv_checkbutton = tk.Checkbutton(frame_left, text="Расш. режим", variable=recognition_mode)
+    #
+    # debug_mode = tk.BooleanVar(value=False)
+    # debug_checkbutton = tk.Checkbutton(frame_left, text="Debug", variable=debug_mode, command=update_debug_mode)
 
-    debug_mode = tk.BooleanVar(value=False)
-    debug_checkbutton = tk.Checkbutton(frame_left, text="Debug", variable=debug_mode, command=update_debug_mode)
+    extra_mode = tk.BooleanVar(value=True)
+    extra_checkbutton = tk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
+
 
     # Упаковка левого блока
     btn_prev.pack(side=tk.LEFT, padx=2)
     btn_next.pack(side=tk.LEFT, padx=2)
     btn_check.pack(side=tk.LEFT, padx=2)
     btn_save.pack(side=tk.LEFT, padx=2)
-    adv_checkbutton.pack(side=tk.LEFT, padx=2)
-    debug_checkbutton.pack(side=tk.LEFT, padx=2)
+    # adv_checkbutton.pack(side=tk.LEFT, padx=2)
+    # debug_checkbutton.pack(side=tk.LEFT, padx=2)
+    extra_checkbutton.pack(side=tk.LEFT, padx=2)
 
     # Первый разделитель
     separator1 = ttk.Separator(frame_main, orient="vertical")
     separator1.pack(side=tk.LEFT, fill="y", padx=5)
 
+    # # ===== 2. Центральный блок (OCR) =====
+    # frame_center = tk.Frame(frame_main)
+    # frame_center.pack(side=tk.LEFT, fill="x", expand=True)
+    #
+    # # Контейнер для элементов OCR (чтобы разместить их в одну строку)
+    # ocr_container = tk.Frame(frame_center)
+    # ocr_container.pack(fill="x", expand=True)
+    #
+    # # Элементы OCR
+    # lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
+    # ocr_engine_var = tk.StringVar(value="Tesseract")
+    # ocr_options = ["Tesseract", "EasyOCR", "PaddleOCR"]
+    # if EASYOCR_AVAILABLE: ocr_options.append("EasyOCR")
+    # if PADDLEOCR_AVAILABLE: ocr_options.append("PaddleOCR")
+    # ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
+    # btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
+    #
+    # # Упаковка элементов OCR рядом
+    # lbl_ocr.pack(side=tk.LEFT, padx=2)
+    # ocr_menu.pack(side=tk.LEFT, padx=2)
+    # btn_init_ocr.pack(side=tk.LEFT, padx=2)
+    #
+    # # Второй разделитель
+    # separator2 = ttk.Separator(frame_main, orient="vertical")
+    # separator2.pack(side=tk.LEFT, fill="y", padx=5)
+
+    # # ===== 3. Правый блок (шаблон + координаты) =====
+    # frame_right = tk.Frame(frame_main)
+    # frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
+    #
+    # # btn_align = tk.Button(frame_main, text="Выровнять по распознанным", command=align_by_recognized, **button_style)
+    # # btn_align.pack(side=tk.LEFT, padx=2)
+    #
+    # # Элементы ввода (расширенные поля)
+    # lbl_pattern = tk.Label(frame_right, text="Шаблон:")
+    # regex_pattern_entry = tk.Entry(frame_right, width=25)  # Увеличенная ширина
+    # coordinates_entry = tk.Entry(frame_right, width=20)  # Увеличенная ширина
+    #
+    # # Упаковка правого блока
+    # lbl_pattern.pack(side=tk.LEFT, padx=2)
+    # regex_pattern_entry.pack(side=tk.LEFT, padx=2)
+    # coordinates_entry.pack(side=tk.LEFT, padx=2)
+
+
+###################
+
+    # Главная рамка (все элементы в одной строке)
+    frame_extra = tk.Frame(root)
+    frame_extra.pack(pady=5, padx=10, fill="x")
+
+    # ===== 1. Левый блок (навигация + чекбокс) =====
+    frame_left_extra = tk.Frame(frame_extra)
+    frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
+
+    # Чекбоксы
+    recognition_mode = tk.IntVar(value=0)
+    adv_checkbutton = tk.Checkbutton(frame_left_extra, text="Расш. режим", variable=recognition_mode)
+
+    debug_mode = tk.BooleanVar(value=False)
+    debug_checkbutton = tk.Checkbutton(frame_left_extra, text="Debug", variable=debug_mode, command=update_debug_mode)
+
+    # Упаковка левого блока
+    adv_checkbutton.pack(side=tk.LEFT, padx=2)
+    debug_checkbutton.pack(side=tk.LEFT, padx=2)
+
+    # Первый разделитель
+    separator1 = ttk.Separator(frame_extra, orient="vertical")
+    separator1.pack(side=tk.LEFT, fill="y", padx=5)
+
     # ===== 2. Центральный блок (OCR) =====
-    frame_center = tk.Frame(frame_main)
+    frame_center = tk.Frame(frame_extra)
     frame_center.pack(side=tk.LEFT, fill="x", expand=True)
 
     # Контейнер для элементов OCR (чтобы разместить их в одну строку)
@@ -1363,12 +1502,15 @@ def create_interface():
     btn_init_ocr.pack(side=tk.LEFT, padx=2)
 
     # Второй разделитель
-    separator2 = ttk.Separator(frame_main, orient="vertical")
+    separator2 = ttk.Separator(frame_extra, orient="vertical")
     separator2.pack(side=tk.LEFT, fill="y", padx=5)
 
     # ===== 3. Правый блок (шаблон + координаты) =====
-    frame_right = tk.Frame(frame_main)
+    frame_right = tk.Frame(frame_extra)
     frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
+
+    btn_align = tk.Button(frame_extra, text="Выровнять по распознанным", command=align_by_recognized)
+    btn_align.pack(side=tk.LEFT, padx=2)
 
     # Элементы ввода (расширенные поля)
     lbl_pattern = tk.Label(frame_right, text="Шаблон:")
@@ -1380,9 +1522,15 @@ def create_interface():
     regex_pattern_entry.pack(side=tk.LEFT, padx=2)
     coordinates_entry.pack(side=tk.LEFT, padx=2)
 
+
+    ###########
+
     # Инициализация полей
     regex_pattern_entry.insert(0, regex_pattern)
     coordinates_entry.bind("<KeyRelease>", update_coordinates)
+
+
+
 
 
 
@@ -1450,7 +1598,271 @@ def create_interface():
     sys.stdout = TextRedirector(text_output)
 
     set_default_coordinates(coordinates_entry)
+    toggle_extra_options()
 
+
+
+def toggle_extra_options():
+    global frame_extra, extra_mode
+
+    if extra_mode.get():
+        if not frame_extra.winfo_ismapped():
+            # frame_extra.pack(fill="x", padx=10, pady=5, before=frame_main)
+            frame_extra.pack(fill="x", padx=10, pady=5, before=frame_canvases)
+
+    else:
+        if frame_extra.winfo_ismapped():
+            frame_extra.pack_forget()
+
+
+
+def create_interface():
+    global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
+    global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
+    global ocr_engine_var, table_frame, tree
+    global selected_areas
+    global debug_mode
+    global extra_mode, frame_extra
+    global frame_main, frame_canvases
+
+
+    root = tk.Tk()
+    extra_mode = tk.BooleanVar(value=False)
+    root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+
+    window_width = 1600
+    window_height = 800
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x = (screen_width // 2) - (window_width // 2)
+    y = (screen_height // 2) - (window_height // 2)
+    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+    frame_top = tk.Frame(root)
+    frame_top.pack(fill='x', expand=True)
+    frame_top.columnconfigure(2, weight=1)
+
+    frame_extra = tk.Frame(root)
+    if extra_mode.get():
+        frame_extra.pack(pady=5, padx=10, fill="x")
+
+    frame_main = tk.Frame(root)
+    frame_main.pack(pady=5, padx=10, fill="x")
+
+    button_style = {'width': 20, 'anchor': 'center'}
+
+    btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, **button_style)
+    btn_load_registry = tk.Button(frame_top, text="Выбрать XLS", command=load_registry, **button_style)
+    entry_pdf_path = tk.Entry(frame_top)
+    btn_recognize = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread, **button_style)
+    btn_match = tk.Button(frame_top, text="Сопоставить", command=match_with_expected, **button_style)
+    btn_save = tk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save), **button_style)
+
+    btn_select_pdf.grid(row=0, column=0, padx=5, pady=5)
+    btn_load_registry.grid(row=0, column=1, padx=5, pady=5)
+    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5, sticky='we')
+    btn_recognize.grid(row=0, column=3, padx=5, pady=5)
+    btn_match.grid(row=0, column=4, padx=5, pady=5)
+    btn_save.grid(row=0, column=5, padx=5, pady=5)
+
+####
+
+    frame_left = tk.Frame(frame_main)
+    frame_left.pack(side=tk.LEFT, fill="x", expand=False)
+
+    button_width = 15
+    btn_prev = tk.Button(frame_left, text="← Назад", command=prev_page, width=button_width)
+    btn_next = tk.Button(frame_left, text="Вперед →", command=next_page, width=button_width)
+    btn_check = tk.Button(frame_left, text="Проверить лист", command=check_image, width=button_width)
+    btn_save_page = tk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
+    extra_checkbutton = tk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
+
+    # link = tk.Label(frame_main, text="Скачать новую версию", fg="blue", cursor="hand2")
+    # link.pack()
+    # link.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://..."))
+
+    btn_prev.pack(side=tk.LEFT, padx=2)
+    btn_next.pack(side=tk.LEFT, padx=2)
+    btn_check.pack(side=tk.LEFT, padx=2)
+    btn_save_page.pack(side=tk.LEFT, padx=2)
+    extra_checkbutton.pack(side=tk.LEFT, padx=2)
+
+    separator1 = ttk.Separator(frame_main, orient="vertical")
+    separator1.pack(side=tk.LEFT, fill="y", padx=5)
+
+    frame_left_extra = tk.Frame(frame_extra)
+    frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
+
+    recognition_mode = tk.IntVar(value=0)
+    adv_checkbutton = tk.Checkbutton(frame_left_extra, text="Расш. режим", variable=recognition_mode)
+
+    debug_mode = tk.BooleanVar(value=False)
+    debug_checkbutton = tk.Checkbutton(frame_left_extra, text="Debug", variable=debug_mode, command=update_debug_mode)
+
+    adv_checkbutton.pack(side=tk.LEFT, padx=2)
+    debug_checkbutton.pack(side=tk.LEFT, padx=2)
+
+    separator2 = ttk.Separator(frame_extra, orient="vertical")
+    separator2.pack(side=tk.LEFT, fill="y", padx=5)
+
+    frame_center = tk.Frame(frame_extra)
+    frame_center.pack(side=tk.LEFT, fill="x", expand=True)
+    ocr_container = tk.Frame(frame_center)
+    ocr_container.pack(fill="x", expand=True)
+
+    lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
+    ocr_engine_var = tk.StringVar(value="Tesseract")
+    ocr_options = ["Tesseract"]
+    if EASYOCR_AVAILABLE: ocr_options.append("EasyOCR")
+    if PADDLEOCR_AVAILABLE: ocr_options.append("PaddleOCR")
+    ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
+    btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
+
+    lbl_ocr.pack(side=tk.LEFT, padx=2)
+    ocr_menu.pack(side=tk.LEFT, padx=2)
+    btn_init_ocr.pack(side=tk.LEFT, padx=2)
+
+    separator3 = ttk.Separator(frame_extra, orient="vertical")
+    separator3.pack(side=tk.LEFT, fill="y", padx=5)
+
+    frame_right = tk.Frame(frame_extra)
+    frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
+    btn_align = tk.Button(frame_extra, text="Выровнять по распознанным", command=align_by_recognized)
+    btn_align.pack(side=tk.LEFT, padx=2)
+
+    lbl_pattern = tk.Label(frame_right, text="Шаблон:")
+    regex_pattern_entry = tk.Entry(frame_right, width=25)
+    coordinates_entry = tk.Entry(frame_right, width=20)
+
+    lbl_pattern.pack(side=tk.LEFT, padx=2)
+    regex_pattern_entry.pack(side=tk.LEFT, padx=2)
+    coordinates_entry.pack(side=tk.LEFT, padx=2)
+
+    regex_pattern_entry.insert(0, regex_pattern)
+    coordinates_entry.bind("<KeyRelease>", update_coordinates)
+
+
+    # ... (оставшаяся часть create_interface без изменений)
+
+
+    # Создание холстов и таблицы
+    frame_canvases = tk.Frame(root)
+    frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
+
+    canvas_width = 750 // 2
+    canvas_height = 500
+
+    # Левый холст (PDF)
+    canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+    canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
+
+    # Правый холст (выделенная область)
+    canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+    canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
+
+    # Обёртка для таблицы Treeview
+    table_frame = tk.Frame(frame_canvases)
+    table_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # Создание Treeview с прокруткой
+    tree_scroll = tk.Scrollbar(table_frame)
+    tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
+    tree.pack(fill=tk.BOTH, expand=True)
+
+    tree_scroll.config(command=tree.yview)
+
+    # Настройка колонок
+    tree["columns"] = ("number", "expected", "recognized", "match", "score")
+    tree.column("#0", width=0, stretch=tk.NO)  # Скрытая колонка
+    tree.column("number", width=50, anchor=tk.CENTER)
+    # tree.column("expected", width=150, anchor=tk.W)
+    tree.column("expected", width=0, stretch=tk.NO)
+    tree.column("recognized", width=150, anchor=tk.W)
+    tree.column("match", width=150, anchor=tk.W)
+    tree.column("score", width=100, anchor=tk.CENTER)
+
+    # Заголовки
+    tree.heading("number", text="№")
+    tree.heading("expected", text="Контейнер из XLS")
+    tree.heading("recognized", text="Контейнер распознанный")
+    tree.heading("match", text="Совпадение")
+    tree.heading("score", text="Коэффициент")
+
+    # Привязка события двойного клика для перехода к странице
+    # tree.bind("<Double-1>", lambda e: on_tree_double_click())
+    # tree.bind("<Double-1>", on_cell_double_click)
+    # tree.bind("<Button-1>", on_tree_click)
+    tree.bind("<Button-1>", on_tree_click)
+
+    # Настройка обработчиков событий для холстов
+    canvas.bind("<Button-1>", define_coordinates)
+    canvas.bind("<B1-Motion>", draw_rectangle)
+    canvas.bind("<ButtonRelease-1>", finish_coordinates)
+    canvas.bind("<MouseWheel>", zoom_canvas)
+    canvas2.bind("<MouseWheel>", zoom_canvas2)
+
+    # Текстовое поле вывода
+    text_output = scrolledtext.ScrolledText(root, width=100, height=10)
+    text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
+    text_output.config(state="normal")
+    sys.stdout = TextRedirector(text_output)
+
+    set_default_coordinates(coordinates_entry)
+
+    toggle_extra_options()
+
+
+
+
+def align_by_recognized():
+    global tree
+
+    items = list(tree.get_children())
+    used_indices = set()
+
+    for i in range(len(items)):
+        item_i = items[i]
+        values_i = list(tree.item(item_i, 'values'))
+        recognized = values_i[2]  # Распознанный контейнер
+
+        if not recognized:
+            continue
+
+        best_score = 0
+        best_j = -1
+
+        for j in range(len(items)):
+            if j == i or j in used_indices:
+                continue
+
+            item_j = items[j]
+            values_j = list(tree.item(item_j, 'values'))
+            expected = values_j[1]  # Контейнер из XLS
+
+            if not expected:
+                continue
+
+            score = is_similar_ratio(recognized, expected)
+            if score > best_score:
+                best_score = score
+                best_j = j
+
+        if best_j != -1:
+            item_j = items[best_j]
+
+            # Меняем местами ТОЛЬКО столбец "Контейнер из XLS" (index 1)
+            val_i = list(tree.item(item_i, 'values'))
+            val_j = list(tree.item(item_j, 'values'))
+
+            val_i[1], val_j[1] = val_j[1], val_i[1]
+
+            tree.item(item_i, values=val_i)
+            tree.item(item_j, values=val_j)
+
+            used_indices.add(best_j)
 
 
 def update_debug_mode():
@@ -1493,7 +1905,7 @@ def goto_page(item):
         except ValueError:
             pass
 
-def edit_cell(item, column):
+def edit_cell2(item, column):
     """Редактирование ячейки"""
     x, y, width, height = tree.bbox(item, "#4")
     current_value = tree.item(item, "values")[3]  # Столбец "Совпадение"
@@ -1523,6 +1935,192 @@ def edit_cell(item, column):
 
     entry_edit.bind("<Return>", save_edit)
     entry_edit.bind("<FocusOut>", save_edit)
+
+def edit_cell(item, column):
+    global expected_containers  # предполагаем, что это список контейнеров из XLS
+
+    # Обновляем список контейнеров для автоподсказки — только при несовпадении
+    expected_containers = []
+    for child in tree.get_children():
+        values = tree.item(child, 'values')
+        try:
+            container = values[1]  # "Контейнер из XLS"
+            # score = float(values[4]) if values[4] else 0
+            # if container and score < 1.0:
+            #     expected_containers.append(container)
+            expected_containers.append(container)
+        except (IndexError, ValueError):
+            continue
+
+    # Получаем координаты и текущее значение
+    x, y, width, height = tree.bbox(item, column)
+    current_value = tree.item(item, "values")[3]
+
+    # Создаём поле ввода
+    first_input = {"done": False}  # ← флаг для сброса текста при первом вводе
+    entry_edit = tk.Entry(tree, borderwidth=0, font=('Arial', 10))
+    entry_edit.place(x=x, y=y, width=width, height=height, anchor=tk.NW)
+    entry_edit.insert(0, current_value)
+    entry_edit.focus_set()
+
+    # Создаём Listbox для автоподсказок
+    listbox = tk.Listbox(tree, height=5)
+    listbox.place(x=x, y=y+height, width=width)
+
+    def update_listbox():
+        typed = entry_edit.get()
+        # matches = [c for c in expected_containers if c.startswith(typed)]
+        matches = [c for c in expected_containers if typed in c]
+        listbox.delete(0, tk.END)
+        for match in matches:
+            listbox.insert(tk.END, match)
+        if matches:
+            listbox.place(x=x, y=y+height, width=width)
+        else:
+            listbox.place_forget()
+
+    def on_key_release2(event):
+        if event.keysym in ("Up", "Down", "Return"):
+            return  # Эти клавиши обрабатываются отдельно
+
+        # Преобразуем ввод в верхний регистр
+        pos = entry_edit.index(tk.INSERT)
+        text = entry_edit.get().upper()
+        entry_edit.delete(0, tk.END)
+        entry_edit.insert(0, text)
+        entry_edit.icursor(pos)
+
+        update_listbox()
+
+    def on_key_release3(event):
+        if not first_input["done"]:
+            entry_edit.delete(0, tk.END)
+            first_input["done"] = True
+
+        if event.keysym in ("Up", "Down", "Return"):
+            return
+
+        # Преобразуем ввод в верхний регистр
+        pos = entry_edit.index(tk.INSERT)
+        text = entry_edit.get().upper()
+        entry_edit.delete(0, tk.END)
+        entry_edit.insert(0, text)
+        entry_edit.icursor(pos)
+
+        update_listbox()
+
+    def on_key_release(event):
+        if not first_input["done"]:
+            char = event.char.upper()  # сохраняем первый введённый символ (в верхнем регистре)
+            entry_edit.delete(0, tk.END)
+            entry_edit.insert(0, char)
+            entry_edit.icursor(1)
+            first_input["done"] = True
+            update_listbox()
+            return
+
+        if event.keysym in ("Up", "Down", "Return"):
+            return
+
+        # Преобразуем весь текст в верхний регистр
+        pos = entry_edit.index(tk.INSERT)
+        text = entry_edit.get().upper()
+        entry_edit.delete(0, tk.END)
+        entry_edit.insert(0, text)
+        entry_edit.icursor(pos)
+
+        update_listbox()
+
+    def on_entry_key2(event):
+        if event.keysym == "Down" and listbox.size() > 0:
+            listbox.focus_set()
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(0)
+            listbox.activate(0)
+            return "break"
+        elif event.keysym == "Return":
+            # Если список подсказок скрыт — считаем это завершением ввода
+            if not listbox.winfo_ismapped():
+                save_edit()
+                return "break"
+
+    def on_entry_key(event):
+        if event.keysym == "Down" and listbox.size() > 0:
+            listbox.focus_set()
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(0)
+            listbox.activate(0)
+            return "break"
+
+        elif event.keysym == "Return":
+            if listbox.winfo_ismapped():
+                if listbox.size() == 1:
+                    # Автоматически подставляем единственный вариант
+                    selected = listbox.get(0)
+                    entry_edit.delete(0, tk.END)
+                    entry_edit.insert(0, selected)
+                    listbox.place_forget()
+                    entry_edit.focus_set()
+                # иначе: сохраняем как есть
+            save_edit()
+            return "break"
+
+    def on_listbox_key(event):
+        if event.keysym == "Return":
+            on_listbox_select(None)
+            return "break"
+        elif event.keysym == "Escape":
+            listbox.place_forget()
+            entry_edit.focus_set()
+            return "break"
+
+    def on_listbox_select(event):
+        if listbox.curselection():
+            selected = listbox.get(listbox.curselection())
+            entry_edit.delete(0, tk.END)
+            entry_edit.insert(0, selected)
+            listbox.place_forget()
+            entry_edit.focus_set()
+
+    def save_edit(event=None):
+        new_value = entry_edit.get()
+        values = list(tree.item(item, "values"))
+        values[3] = new_value
+
+        # Обновим коэффициент
+        recognized = values[2] if len(values) > 2 else ""
+        if recognized and new_value:
+            score = is_similar_ratio(recognized, new_value)
+            # values[4] = f"{score:.2f}"
+            # update_row_color(item, score)
+            tree.tag_configure("manual_edit", background="#ddaaff")
+            tree.item(item, tags=("manual_edit",))
+
+        tree.item(item, values=values)
+        entry_edit.destroy()
+        listbox.place_forget()
+
+    def on_entry_focus_out(event):
+        # Проверяем, ушёл ли фокус именно на listbox
+        widget = event.widget.focus_get()
+        if widget != listbox:
+            save_edit()
+
+    # Привязки
+    entry_edit.bind("<KeyRelease>", on_key_release)
+    entry_edit.bind("<FocusOut>", on_entry_focus_out)
+
+    # entry_edit.bind("<FocusOut>", save_edit)
+    # entry_edit.bind("<Return>", save_edit)
+    entry_edit.bind("<KeyPress>", on_entry_key)
+    listbox.bind("<<ListboxSelect>>", on_listbox_select)
+    listbox.bind("<Return>", on_listbox_key)
+    listbox.bind("<Escape>", on_listbox_key)
+    listbox.bind("<Double-Button-1>", on_listbox_select)
+    listbox.bind("<FocusOut>", lambda e: listbox.place_forget())
+
+    update_listbox()  # показать при открытии
+
 
 def update_row_color(item, score):
     """Обновление цвета строки"""
@@ -1586,7 +2184,7 @@ def load_registry():
                 # Устанавливаем обновленные значения
                 tree.item(table_entries[i]["item_id"], values=current_values)
 
-        messagebox.showinfo("Успех", f"Загружено {len(container_data)} контейнеров")
+        messagebox.showinfo("Успех",f"Загружено {len(container_data)} контейнеров")
 
     except Exception as e:
         logging.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
@@ -1683,7 +2281,7 @@ def check_for_updates():
 def _check_updates():
     try:
         # URL для получения информации о релизах
-        repo_url = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF-Build/releases/latest"
+        repo_url = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
         response = requests.get(repo_url, timeout=5)
 
         response = requests.get(repo_url)
@@ -1743,10 +2341,17 @@ def check_dependencies():
 def main():
     """Основная функция для запуска приложения."""
     try:
-        # check_dependencies()
         set_tesseract_path()
         read_env()
-        create_interface()  # Вызов функции для создания интерфейса
+
+        # Проверка замены main_new → main ДО запуска интерфейса
+        # AutoUpdater.check_post_restart()
+        create_interface()  # Создание интерфейса
+
+        # Проверка обновлений ПОСЛЕ интерфейса (root уже есть)
+        # updater = AutoUpdater(root)
+        # updater.check_for_update()
+
         check_for_updates()
         root.mainloop()  # Запуск цикла обработки событий
     except KeyboardInterrupt:
