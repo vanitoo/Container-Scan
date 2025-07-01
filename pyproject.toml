@@ -1,10 +1,9 @@
 [project]
 name = "OpenCV-PFD"
-version = "1.2.1"
 description = "Распознавание текста из PDF"
-authors = [{name = "Your Name", email = "your.email@example.com"}]
+authors = [{name = "Vanitoo", email = "your.email@example.com"}]
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = {text = "MIT"}
 
 [tool.ruff]
@@ -26,11 +25,14 @@ ignore = [
   "B904",
   "EM101",
   "RUF100",
+  "RUF003",
+
 ]
 
 [tool.ruff.lint]
 fixable = ["ALL"]
 unfixable = ["F401", "F841"]
+extend-ignore = ["RUF001"]  # Игнорировать проверку кириллицы в строках
 
 
 [tool.ruff.format]

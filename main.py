@@ -584,7 +584,7 @@ def start_recognition2():
                 root.update()  # Обновляем интерфейс после каждой страницы
 
             except Exception as e:
-                error_msg = f"Ошибка на странице {page_num + 1}: {str(e)}\n"
+                error_msg = f"Ошибка на странице {page_num + 1}: {e!s}\n"
                 text_output.insert(tk.END, error_msg)
                 text_output.see(tk.END)
                 logging.error(error_msg, exc_info=True)
@@ -594,7 +594,7 @@ def start_recognition2():
         logging.info(f"Распознано {pdf_doc.page_count} страниц.")
 
     except Exception as e:
-        error_msg = f"Критическая ошибка: {str(e)}\n"
+        error_msg = f"Критическая ошибка: {e!s}\n"
         text_output.insert(tk.END, error_msg)
         logging.error(error_msg, exc_info=True)
         logging.error(f"Произошла ошибка при распознавании: {e}")
@@ -1142,65 +1142,80 @@ def validate_coordinates_format(coordinates_text):
         return True
     return False
 
-
 def zoom_canvas(event):
-    global canvas_scale, canvas, original_page_image, cropped_image_display
+    global canvas_scale, canvas, original_page_image
 
-    # Увеличение при прокрутке вверх, уменьшение — при прокрутке вниз
+    if not original_page_image:
+        return
+
+    # Позиция мыши в canvas
+    mouse_x = canvas.canvasx(event.x)
+    mouse_y = canvas.canvasy(event.y)
+
+    # Зум фактор
     zoom_factor = 1.1 if event.delta > 0 else 0.9
-    canvas_scale *= zoom_factor
+    new_scale = canvas_scale * zoom_factor
 
-    # Проверка: изображение должно быть загружено
-    if original_page_image:
-        # Вычисляем новые размеры
-        new_width = int(original_page_image.width * canvas_scale)
-        new_height = int(original_page_image.height * canvas_scale)
+    # Ограничим масштаб от 10% до 500%
+    new_scale = max(0.1, min(new_scale, 5.0))
+    if new_scale == canvas_scale:
+        return
 
-        # Масштабируем изображение
-        scaled_image = original_page_image.resize((new_width, new_height), Image.LANCZOS)
+    canvas_scale = new_scale
 
-        # Отображаем на холсте
-        cropped_image_display = ImageTk.PhotoImage(image=scaled_image)
-        canvas.delete("all")  # Очищаем холст перед отрисовкой
-        canvas.create_image(0, 0, anchor=tk.NW, image=cropped_image_display)
-        canvas.image = cropped_image_display  # Сохраняем ссылку, чтобы не удалялось
-        canvas.config(scrollregion=canvas.bbox(tk.ALL))  # Обновляем область прокрутки
+    # Размер нового изображения
+    new_width = int(original_page_image.width * canvas_scale)
+    new_height = int(original_page_image.height * canvas_scale)
+    scaled_image = original_page_image.resize((new_width, new_height), Image.LANCZOS)
 
+    # Обновляем изображение
+    canvas.delete("all")
+    img_tk = ImageTk.PhotoImage(scaled_image)
+    canvas.image = img_tk  # Сохраняем ссылку
+    canvas.create_image(0, 0, anchor=tk.NW, image=img_tk)
+    canvas.config(scrollregion=(0, 0, new_width, new_height))
 
-
-
-
-
-
+    # Смещение скроллбаров так, чтобы под курсором оставалась та же точка
+    canvas.xview_moveto((mouse_x * zoom_factor - event.x) / new_width)
+    canvas.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
 
 def zoom_canvas2(event):
     global canvas2_scale, cropped_image
 
-    try:
-        if not hasattr(canvas2, 'image') or not canvas2.image or not cropped_image:
-            return
+    if not cropped_image:
+        return
 
-        zoom_factor = 1.1 if event.delta > 0 else 0.9
-        new_scale = canvas2_scale * zoom_factor
+    # Получаем координаты мыши относительно canvas2
+    mouse_x = canvas2.canvasx(event.x)
+    mouse_y = canvas2.canvasy(event.y)
 
-        # Ограничиваем масштаб между 50% и 500%
-        new_scale = max(0.5, min(new_scale, 5.0))
+    # Устанавливаем коэффициент масштабирования
+    zoom_factor = 1.1 if event.delta > 0 else 0.9
+    new_scale = canvas2_scale * zoom_factor
 
-        if new_scale != canvas2_scale:
-            canvas2_scale = new_scale
-            width = int(cropped_image.width * canvas2_scale)
-            height = int(cropped_image.height * canvas2_scale)
+    # Ограничения масштаба
+    new_scale = max(0.5, min(new_scale, 5.0))
+    if new_scale == canvas2_scale:
+        return
 
-            try:
-                scaled_img = cropped_image.resize((width, height), Image.LANCZOS)
-                canvas2.delete("all")
-                canvas2.image = ImageTk.PhotoImage(scaled_img)
-                canvas2.create_image(0, 0, anchor=tk.NW, image=canvas2.image)
-                canvas2.config(scrollregion=canvas2.bbox(tk.ALL))
-            except Exception as e:
-                print(f"Ошибка масштабирования: {e}")
-    except Exception as e:
-        print(f"Ошибка в zoom_canvas2: {e}")
+    canvas2_scale = new_scale
+
+    # Новые размеры изображения
+    new_width = int(cropped_image.width * canvas2_scale)
+    new_height = int(cropped_image.height * canvas2_scale)
+
+    # Масштабируем изображение
+    scaled_img = cropped_image.resize((new_width, new_height), Image.LANCZOS)
+
+    # Обновляем canvas2
+    canvas2.delete("all")
+    canvas2.image = ImageTk.PhotoImage(scaled_img)
+    canvas2.create_image(0, 0, anchor=tk.NW, image=canvas2.image)
+    canvas2.config(scrollregion=(0, 0, new_width, new_height))
+
+    # Прокручиваем так, чтобы под курсором осталась та же точка
+    canvas2.xview_moveto((mouse_x * zoom_factor - event.x) / new_width)
+    canvas2.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
 
 def update_coordinates(event):
     global x_start, y_start, x_end, y_end, coordinates_entry
@@ -1220,7 +1235,6 @@ def update_coordinates(event):
     except ValueError:
         # Игнорируем ошибку, если ввод некорректен
         print("Ошибка: Неверный формат координат")
-
 
 # Процедура записи параметров в файл .env
 def save_env(x_start, y_start, x_end, y_end, regex_pattern):
@@ -1631,7 +1645,7 @@ def create_interface():
     root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
-    window_width = 1600
+    window_width = 1400
     window_height = 800
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
@@ -1728,8 +1742,9 @@ def create_interface():
 
     frame_right = tk.Frame(frame_extra)
     frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
-    btn_align = tk.Button(frame_extra, text="Выровнять по распознанным", command=align_by_recognized)
-    btn_align.pack(side=tk.LEFT, padx=2)
+
+    # btn_align = tk.Button(frame_extra, text="Выровнять по распознанным", command=align_by_recognized)
+    # btn_align.pack(side=tk.LEFT, padx=2)
 
     lbl_pattern = tk.Label(frame_right, text="Шаблон:")
     regex_pattern_entry = tk.Entry(frame_right, width=25)
@@ -1782,7 +1797,7 @@ def create_interface():
     tree.column("expected", width=0, stretch=tk.NO)
     tree.column("recognized", width=150, anchor=tk.W)
     tree.column("match", width=150, anchor=tk.W)
-    tree.column("score", width=100, anchor=tk.CENTER)
+    tree.column("score", width=50, anchor=tk.CENTER)
 
     # Заголовки
     tree.heading("number", text="№")
@@ -2219,7 +2234,7 @@ def init_ocr_engine():
         }.get(selected_engine, f"pip install {selected_engine.lower()}")
         logging.error("Ошибка", f"Не хватает зависимостей!\nУстановите:\n{error_msg}")
     except Exception as e:
-        logging.error("Ошибка", f"Не удалось инициализировать {selected_engine}: {str(e)}")
+        logging.error("Ошибка", f"Не удалось инициализировать {selected_engine}: {e!s}")
         ocr_reader = None
 
 
@@ -2314,7 +2329,7 @@ def compare_versions(current_version: str, latest_version: str) -> bool:
         raise ValueError("Version numbers must contain only integers separated by dots")
 
     # Compare component by component
-    for current_part, latest_part in zip(current, latest):
+    for current_part, latest_part in zip(current, latest, strict=True):
         if current_part < latest_part:
             return True
         if current_part > latest_part:
