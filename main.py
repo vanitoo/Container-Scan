@@ -1,13 +1,14 @@
+from __future__ import annotations
+
 import csv
-import logging
+# import logging
 import os
 import re
 import sys
 import threading
 import tkinter as tk
 from difflib import SequenceMatcher
-from tkinter import filedialog, messagebox, scrolledtext
-from tkinter import ttk
+from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import cv2
 import fitz  # PyMuPDF
@@ -15,11 +16,13 @@ import numpy as np
 import openpyxl  # для .xlsx
 import pytesseract
 import requests
-from PIL import Image, ImageTk
 from dotenv import load_dotenv, set_key
-from auto_updater import AutoUpdater
+from PIL import Image, ImageTk
 
+from auto_updater import AutoUpdater
 from version import __version__  # Импортируем номер версии
+from custom_logger import logger
+
 
 EASYOCR_AVAILABLE = False
 PADDLEOCR_AVAILABLE = False
@@ -31,7 +34,7 @@ DEFAULT_COORDINATES2 = {
     "y_start": 298,
     "x_end": 92,
     "y_end": 345,
-    "regex_pattern": "^[A-Z]{3}U\d{7}$",
+    "regex_pattern": r"^[A-Z]{3}U\d{7}$",
 }
 
 global table_frame, debug_mode
@@ -61,18 +64,12 @@ last_click_time = 0
 DOUBLE_CLICK_DELAY = 300  # Задержка для двойного клика в миллисекундах
 
 # Настройка логирования
-logging.basicConfig(
-    filename="app.log",
-    level=logging.DEBUG,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
+# logging.basicConfig(
+#     filename="app.log",
+#     level=logging.DEBUG,
+#     format="%(asctime)s - %(levelname)s - %(message)s",
+# )
 
-
-def toggle_extra_options():
-    if extra_options_visible.get():
-        extra_frame.pack(fill="x", padx=10, pady=5)
-    else:
-        extra_frame.pack_forget()
 
 def is_similar_ratio(a, b):
     return SequenceMatcher(None, a, b).ratio()
@@ -125,52 +122,6 @@ def match_with_expected():
             tree.tag_configure("no_match", background="#ffaaaa")  # Светло-красный
             tree.item(entry["item_id"], tags=("no_match",))
 
-def match_with_expected3():
-    global tree
-
-    items = tree.get_children()
-
-    for i in range(len(items)):
-        item_i = items[i]
-        values_i = list(tree.item(item_i, 'values'))
-        recognized = values_i[2]  # Распознанный контейнер
-
-        if not recognized:
-            continue
-
-        # Ищем точное совпадение recognized с любым "Контейнер из XLS"
-        for j in range(len(items)):
-            item_j = items[j]
-            if i == j:
-                continue
-
-            values_j = list(tree.item(item_j, 'values'))
-            expected = values_j[1]  # Контейнер из XLS
-
-            if expected == recognized:
-                # Меняем строки местами (все 5 колонок)
-                temp = values_i.copy()
-                values_i = values_j.copy()
-                values_j = temp
-
-                # Обновляем Treeview
-                tree.item(item_i, values=values_i)
-                tree.item(item_j, values=values_j)
-
-                # Цвет строки i (теперь в ней совпадение 100%)
-                tree.tag_configure("exact_match", background="#a8e6a8")
-                tree.item(item_i, tags=("exact_match",))
-                break  # нашли — выходим из j-цикла
-
-        # Если после обмена строки совпадают — вычисляем коэффициент
-        values_i = list(tree.item(item_i, 'values'))
-        if values_i[1] and values_i[2]:
-            score = is_similar_ratio(values_i[1], values_i[2])
-            values_i[3] = values_i[1]  # Совпадение
-            values_i[4] = f"{score:.2f}"
-            tree.item(item_i, values=values_i)
-
-
 
 def safe_execute(func):
     """Декоратор для оборачивания функций с обработкой ошибок и логированием."""
@@ -179,7 +130,7 @@ def safe_execute(func):
         try:
             return func(*args, **kwargs)
         except Exception as e:
-            logging.error(f"Ошибка в функции {func.__name__}: {e}", exc_info=True)
+            logger.error(f"Ошибка в функции {func.__name__}: {e}", exc_info=True)
             messagebox.showerror("Ошибка", f"Произошла ошибка: {e}")
 
     return wrapper
@@ -202,12 +153,12 @@ def set_tesseract_path():
     for path in possible_paths:
         if os.path.exists(path):
             pytesseract.pytesseract.tesseract_cmd = path
-            # print(f"Путь для Tesseract установлен: {path}")
+            # logger.info(f"Путь для Tesseract установлен: {path}")
             return
 
     # Если ни один путь не найден
-    print("Tesseract не найден. Пожалуйста, установите его по ссылке:")
-    print("https://github.com/UB-Mannheim/tesseract/wiki")
+    logger.info("Tesseract не найден. Пожалуйста, установите его по ссылке:")
+    logger.info("https://github.com/UB-Mannheim/tesseract/wiki")
 
 
 # Функция для создания выходной папки
@@ -268,7 +219,7 @@ def unload_pdf():
             pdf_doc.close()
             pdf_doc = None
     except Exception as e:
-        logging.warning(f"Не удалось закрыть PDF: {e}")
+        logger.warning(f"Не удалось закрыть PDF: {e}")
 
     # Сброс параметров
     current_page = 0
@@ -293,16 +244,14 @@ def select_pdf():
         if file_path:
             unload_pdf()  # ← сбрасываем предыдущий
             pdf_path = file_path
-
             entry_pdf_path.delete(0, tk.END)
             entry_pdf_path.insert(0, file_path)
             current_page = 0
-
             load_page()
 
     except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
-        logging.exception("Ошибка выбора PDF")
+        logger.warning("Ошибка выбора PDF")
 
 
 
@@ -351,7 +300,7 @@ def load_page():
 
     except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось загрузить страницу: {e}")
-        logging.exception("Ошибка при загрузке страницы")
+        logger.warning("Ошибка при загрузке страницы")
 
 # Функция для выбора координат области
 def define_coordinates(event):
@@ -359,10 +308,10 @@ def define_coordinates(event):
     # Координаты события с учетом масштаба
     x_start = int(event.x)
     y_start = int(event.y)
-    print(scale_factor)
-    print(scale_percent)
-    print(event.x, event.y)
-    print(x_start, y_start)
+    logger.info(scale_factor)
+    logger.info(scale_percent)
+    logger.info(event.x, event.y)
+    logger.info(x_start, y_start)
 
     # Удаляем старое выделение, если оно есть
     if rect_id:
@@ -532,73 +481,6 @@ def update_table_from_entries(table_frame_ref):
 def start_recognition_thread():
     threading.Thread(target=start_recognition, daemon=True).start()
 
-def start_recognition2():
-    global selected_areas, pdf_doc, tree
-
-    if not pdf_doc:
-        messagebox.showwarning("Нет документа", "Пожалуйста, выберите PDF-файл.")
-        return
-
-    # Если нет выделенной области, но есть координаты из .env
-    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
-        selected_areas = [(None, x_start, y_start, x_end, y_end)]
-        draw_selection()  # Визуализируем область
-
-
-    if not selected_areas:
-        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
-        return
-
-    area = selected_areas[0]
-    _, x1, y1, x2, y2 = area
-    coords = (x1, y1, x2, y2)
-    engine = ocr_engine_var.get().lower()
-
-    text_output.delete(1.0, tk.END)
-    text_output.insert(tk.END, "Начало распознавания...\n")
-    text_output.see(tk.END)
-    root.update()  # Обновляем интерфейс, чтобы показать сообщение
-
-    try:
-        for page_num in range(pdf_doc.page_count):
-            try:
-                recognized_text = recognize_area(pdf_doc, page_num, coords, engine)
-                formatted_text = format_extracted_text(recognized_text, page_num + 1)
-
-                # Обновляем таблицу
-                if page_num < len(table_entries):
-                    table_entries[page_num]["recognized"] = formatted_text
-                    tree.item(table_entries[page_num]["item_id"],
-                             values=(
-                                 page_num + 1,
-                                 table_entries[page_num]["code"],
-                                 formatted_text,
-                                 "",  # Совпадение
-                                 ""   # Коэффициент
-                             ))
-
-                # Логируем прогресс
-                log_msg = f"Страница {page_num + 1}/{pdf_doc.page_count}: {formatted_text}\n"
-                text_output.insert(tk.END, log_msg)
-                text_output.see(tk.END)
-                root.update()  # Обновляем интерфейс после каждой страницы
-
-            except Exception as e:
-                error_msg = f"Ошибка на странице {page_num + 1}: {e!s}\n"
-                text_output.insert(tk.END, error_msg)
-                text_output.see(tk.END)
-                logging.error(error_msg, exc_info=True)
-                continue
-
-        text_output.insert(tk.END, "\nРаспознавание завершено!\n")
-        logging.info(f"Распознано {pdf_doc.page_count} страниц.")
-
-    except Exception as e:
-        error_msg = f"Критическая ошибка: {e!s}\n"
-        text_output.insert(tk.END, error_msg)
-        logging.error(error_msg, exc_info=True)
-        logging.error(f"Произошла ошибка при распознавании: {e}")
-
 
 def start_recognition():
     global selected_areas, pdf_doc, last_scale_factor
@@ -638,7 +520,7 @@ def start_recognition():
         messagebox.showinfo("Готово", f"Распознано {pdf_doc.page_count} страниц.")
 
     except Exception as e:
-        logging.exception("Ошибка при распознавании всех страниц")
+        logger.warning("Ошибка при распознавании всех страниц")
         messagebox.showerror("Ошибка", f"Произошла ошибка при распознавании: {e}")
 
 
@@ -714,73 +596,12 @@ def _save_results_worker(btn):
 
     except Exception as e:
         progress.destroy()
-        messagebox.showerror("Ошибка", f"Ошибка при сохранении: {str(e)}")
-        logging.error(f"Ошибка сохранения: {e}", exc_info=True)
+        messagebox.showerror("Ошибка", f"Ошибка при сохранении: {e!s}")
+        logger.error(f"Ошибка сохранения: {e}", exc_info=True)
     finally:
         if 'progress' in locals():
             progress.destroy()
         btn.after(0, lambda: btn.config(state=tk.NORMAL))
-
-
-def _save_results_worker3():
-    global recognition_results
-
-    try:
-        output_dir = create_output_directory(pdf_path)
-
-        for i, entry in enumerate(table_entries):
-            page_num = entry['index'] - 1
-            page = pdf_doc.load_page(page_num)
-            pix = page.get_pixmap(dpi=200)
-            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-
-            base_path = os.path.join(output_dir, f"page_{i + 1}")
-            page_image.save(f"{base_path}_full.jpg")
-
-            # Сохранение дополнительных данных в debug-режиме
-            if debug_mode.get():
-                # Сохраняем cropped image
-                if hasattr(canvas2, 'image') and canvas2.image:
-                    cropped_image.save(f"{base_path}_cropped.jpg")
-
-                # Сохраняем распознанный текст
-                if i < len(recognition_results):
-                    result = recognition_results[i]
-                    with open(f"{base_path}_info.txt", "w", encoding="utf-8") as f:
-                        f.write(f"Страница: {result['page']}\n")
-                        f.write(f"Координаты: {result['coords']}\n")
-                        f.write(f"Движок OCR: {result['engine']}\n")
-                        f.write("\n--- Исходный текст ---\n")
-                        f.write(result['raw_text'])
-                        f.write("\n\n--- Форматированный текст ---\n")
-                        f.write(result['formatted_text'])
-
-        messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
-
-    except Exception as e:
-        messagebox.showerror("Ошибка", f"Ошибка при сохранении: {str(e)}")
-        logging.error(f"Ошибка сохранения: {e}", exc_info=True)
-
-
-
-def recognize_with_selected_engine2(image):
-
-    if ocr_engine == "tesseract":
-        return pytesseract.image_to_string(image, lang="eng").strip()
-
-    if ocr_engine == "easyocr":
-        results = ocr_reader.readtext(image, detail=0, paragraph=False)
-        return " ".join(results).strip()
-
-    if ocr_engine == "paddleocr":
-        results = ocr_reader.predict(img=image, cls=True)
-        if results and isinstance(results[0], list):
-            texts = [line[1][0] for line in results[0]]
-            return " ".join(texts).strip()
-        return ""
-
-    # fallback, если движок неизвестен
-    return ""
 
 def run_ocr_in_thread(image, **kwargs):
     """Запуск OCR в отдельном потоке с передачей параметров."""
@@ -882,7 +703,7 @@ def convert_coords_to_pdf(coords_canvas, scale_factor):
 
 def extract_text_by_coords(page_num, coords_canvas):
     if not pdf_doc:
-        print("PDF-документ не загружен.")
+        logger.info("PDF-документ не загружен.")
         return ""
 
     coords_pdf = convert_coords_to_pdf(coords_canvas, last_scale_factor)
@@ -894,57 +715,8 @@ def extract_text_by_coords(page_num, coords_canvas):
         cropped = pil_img.crop(coords_pdf)
         return recognize_with_selected_engine(cropped)
     except Exception as e:
-        print(f"Ошибка при OCR страницы {page_num + 1}: {e}")
+        logger.info(f"Ошибка при OCR страницы {page_num + 1}: {e}")
         return ""
-
-
-def check_image2():
-    global pdf_doc, current_page, selected_areas, tree
-
-    if not pdf_doc:
-        messagebox.showwarning("Нет файла", "Пожалуйста, выберите PDF-файл.")
-        return
-
-    # Если нет выделенной области, но есть координаты из .env
-    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
-        selected_areas = [(None, x_start, y_start, x_end, y_end)]
-        draw_selection()  # Визуализируем область
-
-
-    if not selected_areas:
-        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
-        return
-
-    try:
-        area = selected_areas[0]
-        _, x1, y1, x2, y2 = area
-        coords = (x1, y1, x2, y2)
-        engine = ocr_engine_var.get().lower()
-
-        # Распознаем только текущую страницу
-        recognized_text = recognize_area(pdf_doc, current_page, coords, engine)
-        formatted_text = format_extracted_text(recognized_text, current_page + 1)
-
-        # Обновляем соответствующую строку в таблице
-        if current_page < len(table_entries):
-            table_entries[current_page]["recognized"] = formatted_text
-            tree.item(table_entries[current_page]["item_id"],
-                      values=(
-                          current_page + 1,
-                          table_entries[current_page]["code"],
-                          formatted_text,
-                          "",  # Совпадение
-                          ""  # Коэффициент
-                      ))
-
-        text_output.delete(1.0, tk.END)
-        text_output.insert(tk.END, f"Страница {current_page + 1}:\n")
-        text_output.insert(tk.END, f"Распознано: {formatted_text}\n")
-        text_output.insert(tk.END, f"Исходный текст: {recognized_text}\n")
-
-    except Exception as e:
-        logging.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
-        messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
 
 
 def check_image():
@@ -989,16 +761,24 @@ def check_image():
         text_output.delete(1.0, tk.END)
         if current_page < len(recognition_results):
             result = recognition_results[current_page]
-            text_output.insert(tk.END, f"=== Страница {current_page + 1} ===\n")
-            text_output.insert(tk.END, f"Координаты: {result['coords']}\n")
-            text_output.insert(tk.END, f"Движок: {result['engine']}\n")
-            text_output.insert(tk.END, "\n--- Исходный текст ---\n")
-            text_output.insert(tk.END, result['raw_text'])
-            text_output.insert(tk.END, "\n\n--- Форматированный текст ---\n")
-            text_output.insert(tk.END, result['formatted_text'])
+            # text_output.insert(tk.END, f"=== Страница {current_page + 1} ===\n")
+            # text_output.insert(tk.END, f"Координаты: {result['coords']}\n")
+            # text_output.insert(tk.END, f"Движок: {result['engine']}\n")
+            # text_output.insert(tk.END, "\n--- Исходный текст ---\n")
+            # text_output.insert(tk.END, result['raw_text'])
+            # text_output.insert(tk.END, "\n\n--- Форматированный текст ---\n")
+            # text_output.insert(tk.END, result['formatted_text'])
+            logger.info(f"=== Страница {current_page + 1} ===\n")
+            logger.info(f"Координаты: {result['coords']}\n")
+            logger.info(f"Движок: {result['engine']}\n")
+            logger.info("\n--- Исходный текст ---\n")
+            logger.info(result['raw_text'])
+            logger.info("\n\n--- Форматированный текст ---\n")
+            logger.info(result['formatted_text'])
+
 
     except Exception as e:
-        logging.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
+        logger.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
 
 def extract_area_image_from_pdf(pdf_doc, page_index, coords, dpi=200):
@@ -1055,16 +835,6 @@ def recognize_with_selected_engine(image, engine):
     # Fallback на Tesseract, если движок неизвестен или недоступен
     return pytesseract.image_to_string(image, lang="eng").strip()
 
-def recognize_area2(pdf_doc, page_index, coords, engine):
-    try:
-        cropped_image = extract_area_image_from_pdf(pdf_doc, page_index, coords)
-        if cropped_image is None or cropped_image.size == 0:
-            return ""
-        return recognize_with_selected_engine(cropped_image, engine)
-    except Exception as e:
-        logging.error(f"Ошибка при распознавании области: {e}", exc_info=True)
-        return ""
-
 def recognize_area(pdf_doc, page_index, coords, engine):
     global recognition_results
 
@@ -1092,12 +862,12 @@ def recognize_area(pdf_doc, page_index, coords, engine):
             recognition_results.append(result)
 
         # Вывод в консоль (можно закомментировать)
-        print(f"Страница {page_index + 1}: {formatted_text}")
+        logger.info(f"Страница {page_index + 1}: {formatted_text}")
 
         return formatted_text
 
     except Exception as e:
-        logging.error(f"Ошибка при распознавании области: {e}", exc_info=True)
+        logger.error(f"Ошибка при распознавании области: {e}", exc_info=True)
         return ""
 
 # Функция для перехода к следующей странице
@@ -1226,15 +996,13 @@ def update_coordinates(event):
         # Проверяем, что получено 4 значения
         if len(coordinates) == 4:
             x_start, y_start, x_end, y_end = map(int, coordinates)
-            print(
-                f"Обновленные координаты: x_start={x_start}, y_start={y_start}, x_end={x_end}, y_end={y_end}"
-            )
-            draw_selection()  # Предполагается, что функция draw_selection() используется для обновления графики
+            logger.info(f"Обновленные координаты: x_start={x_start}, y_start={y_start}, x_end={x_end}, y_end={y_end}")
+            draw_selection()
         else:
-            print("Ошибка: Введите 4 координаты, разделенные запятыми")
+            logger.info("Ошибка: Введите 4 координаты, разделенные запятыми")
     except ValueError:
         # Игнорируем ошибку, если ввод некорректен
-        print("Ошибка: Неверный формат координат")
+        logger.info("Ошибка: Неверный формат координат")
 
 # Процедура записи параметров в файл .env
 def save_env(x_start, y_start, x_end, y_end, regex_pattern):
@@ -1266,10 +1034,10 @@ def read_env():
             coordinates_entry.delete(0, tk.END)
             coordinates_entry.insert(0, f"{x_start},{y_start},{x_end},{y_end}")
 
-        print(f"Загружены координаты из .env: x={x_start}, y={y_start}, w={x_end - x_start}, h={y_end - y_start}")
+        logger.info(f"Загружены координаты из .env: x={x_start}, y={y_start}, w={x_end - x_start}, h={y_end - y_start}")
 
     except Exception as e:
-        print(f"[ERROR] Ошибка при загрузке координат из .env: {e}")
+        logger.info(f"[ERROR] Ошибка при загрузке координат из .env: {e}")
         # Устанавливаем значения по умолчанию
         x_start, y_start, x_end, y_end = (
             DEFAULT_COORDINATES2["x_start"],
@@ -1333,301 +1101,17 @@ def save_current_page():
             messagebox.showinfo("Успех", f"Страница сохранена как {output_file}_full.jpg")
 
     except Exception as e:
-        logging.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
-
-
-
-def create_interface2():
-    global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
-    global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
-    global ocr_engine_var, table_frame, tree  # Добавляем tree в глобальные переменные
-    global selected_areas
-    global debug_mode
-    global extra_options_visible, extra_frame, extra_mode, frame_extra
-
-    # Создание интерфейса
-    root = tk.Tk()
-    root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-
-    # Устанавливаем размеры окна
-    window_width = 1600
-    window_height = 800
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    x = (screen_width // 2) - (window_width // 2)
-    y = (screen_height // 2) - (window_height // 2)
-    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-    # Верхняя рамка
-    frame_top = tk.Frame(root)
-    # frame_top.pack(pady=10, padx=10, fill="x")
-    frame_top.pack(fill='x', expand=True)
-    frame_top.columnconfigure(2, weight=1)
-
-    # Создаем стиль для кнопок с фиксированной шириной
-    button_style = {'width': 20, 'anchor': 'center'}
-
-    btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, **button_style)
-    btn_load_registry = tk.Button(frame_top, text="Выбрать XLS", command=load_registry, **button_style)
-    entry_pdf_path = tk.Entry(frame_top)
-    btn_recognize = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread, **button_style)
-    btn_match = tk.Button(frame_top, text="Сопоставить", command=match_with_expected, **button_style)
-    btn_save = tk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save), **button_style)
-
-    btn_select_pdf.grid(row=0, column=0, padx=5, pady=5)
-    btn_load_registry.grid(row=0, column=1, padx=5, pady=5)
-    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5, sticky='we')
-    btn_recognize.grid(row=0, column=3, padx=5, pady=5)
-    btn_match.grid(row=0, column=4, padx=5, pady=5)
-    btn_save.grid(row=0, column=5, padx=5, pady=5)
-
-
-#################
-    # Главная рамка (все элементы в одной строке)
-    frame_main = tk.Frame(root)
-    frame_main.pack(pady=5, padx=10, fill="x")
-
-    # ===== 1. Левый блок (навигация + чекбокс) =====
-    frame_left = tk.Frame(frame_main)
-    frame_left.pack(side=tk.LEFT, fill="x", expand=False)
-
-    # Навигационные кнопки (одинаковой ширины)
-    button_width = 15  # Ширина всех кнопок
-    btn_prev = tk.Button(frame_left, text="← Назад", command=prev_page, width=button_width)
-    btn_next = tk.Button(frame_left, text="Вперед →", command=next_page, width=button_width)
-    btn_check = tk.Button(frame_left, text="Проверить лист", command=check_image, width=button_width)
-    btn_save = tk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
-
-
-    # Чекбоксы
-    # recognition_mode = tk.IntVar(value=0)
-    # adv_checkbutton = tk.Checkbutton(frame_left, text="Расш. режим", variable=recognition_mode)
-    #
-    # debug_mode = tk.BooleanVar(value=False)
-    # debug_checkbutton = tk.Checkbutton(frame_left, text="Debug", variable=debug_mode, command=update_debug_mode)
-
-    extra_mode = tk.BooleanVar(value=True)
-    extra_checkbutton = tk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
-
-
-    # Упаковка левого блока
-    btn_prev.pack(side=tk.LEFT, padx=2)
-    btn_next.pack(side=tk.LEFT, padx=2)
-    btn_check.pack(side=tk.LEFT, padx=2)
-    btn_save.pack(side=tk.LEFT, padx=2)
-    # adv_checkbutton.pack(side=tk.LEFT, padx=2)
-    # debug_checkbutton.pack(side=tk.LEFT, padx=2)
-    extra_checkbutton.pack(side=tk.LEFT, padx=2)
-
-    # Первый разделитель
-    separator1 = ttk.Separator(frame_main, orient="vertical")
-    separator1.pack(side=tk.LEFT, fill="y", padx=5)
-
-    # # ===== 2. Центральный блок (OCR) =====
-    # frame_center = tk.Frame(frame_main)
-    # frame_center.pack(side=tk.LEFT, fill="x", expand=True)
-    #
-    # # Контейнер для элементов OCR (чтобы разместить их в одну строку)
-    # ocr_container = tk.Frame(frame_center)
-    # ocr_container.pack(fill="x", expand=True)
-    #
-    # # Элементы OCR
-    # lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
-    # ocr_engine_var = tk.StringVar(value="Tesseract")
-    # ocr_options = ["Tesseract", "EasyOCR", "PaddleOCR"]
-    # if EASYOCR_AVAILABLE: ocr_options.append("EasyOCR")
-    # if PADDLEOCR_AVAILABLE: ocr_options.append("PaddleOCR")
-    # ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
-    # btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
-    #
-    # # Упаковка элементов OCR рядом
-    # lbl_ocr.pack(side=tk.LEFT, padx=2)
-    # ocr_menu.pack(side=tk.LEFT, padx=2)
-    # btn_init_ocr.pack(side=tk.LEFT, padx=2)
-    #
-    # # Второй разделитель
-    # separator2 = ttk.Separator(frame_main, orient="vertical")
-    # separator2.pack(side=tk.LEFT, fill="y", padx=5)
-
-    # # ===== 3. Правый блок (шаблон + координаты) =====
-    # frame_right = tk.Frame(frame_main)
-    # frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
-    #
-    # # btn_align = tk.Button(frame_main, text="Выровнять по распознанным", command=align_by_recognized, **button_style)
-    # # btn_align.pack(side=tk.LEFT, padx=2)
-    #
-    # # Элементы ввода (расширенные поля)
-    # lbl_pattern = tk.Label(frame_right, text="Шаблон:")
-    # regex_pattern_entry = tk.Entry(frame_right, width=25)  # Увеличенная ширина
-    # coordinates_entry = tk.Entry(frame_right, width=20)  # Увеличенная ширина
-    #
-    # # Упаковка правого блока
-    # lbl_pattern.pack(side=tk.LEFT, padx=2)
-    # regex_pattern_entry.pack(side=tk.LEFT, padx=2)
-    # coordinates_entry.pack(side=tk.LEFT, padx=2)
-
-
-###################
-
-    # Главная рамка (все элементы в одной строке)
-    frame_extra = tk.Frame(root)
-    frame_extra.pack(pady=5, padx=10, fill="x")
-
-    # ===== 1. Левый блок (навигация + чекбокс) =====
-    frame_left_extra = tk.Frame(frame_extra)
-    frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
-
-    # Чекбоксы
-    recognition_mode = tk.IntVar(value=0)
-    adv_checkbutton = tk.Checkbutton(frame_left_extra, text="Расш. режим", variable=recognition_mode)
-
-    debug_mode = tk.BooleanVar(value=False)
-    debug_checkbutton = tk.Checkbutton(frame_left_extra, text="Debug", variable=debug_mode, command=update_debug_mode)
-
-    # Упаковка левого блока
-    adv_checkbutton.pack(side=tk.LEFT, padx=2)
-    debug_checkbutton.pack(side=tk.LEFT, padx=2)
-
-    # Первый разделитель
-    separator1 = ttk.Separator(frame_extra, orient="vertical")
-    separator1.pack(side=tk.LEFT, fill="y", padx=5)
-
-    # ===== 2. Центральный блок (OCR) =====
-    frame_center = tk.Frame(frame_extra)
-    frame_center.pack(side=tk.LEFT, fill="x", expand=True)
-
-    # Контейнер для элементов OCR (чтобы разместить их в одну строку)
-    ocr_container = tk.Frame(frame_center)
-    ocr_container.pack(fill="x", expand=True)
-
-    # Элементы OCR
-    lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
-    ocr_engine_var = tk.StringVar(value="Tesseract")
-    ocr_options = ["Tesseract", "EasyOCR", "PaddleOCR"]
-    if EASYOCR_AVAILABLE: ocr_options.append("EasyOCR")
-    if PADDLEOCR_AVAILABLE: ocr_options.append("PaddleOCR")
-    ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
-    btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
-
-    # Упаковка элементов OCR рядом
-    lbl_ocr.pack(side=tk.LEFT, padx=2)
-    ocr_menu.pack(side=tk.LEFT, padx=2)
-    btn_init_ocr.pack(side=tk.LEFT, padx=2)
-
-    # Второй разделитель
-    separator2 = ttk.Separator(frame_extra, orient="vertical")
-    separator2.pack(side=tk.LEFT, fill="y", padx=5)
-
-    # ===== 3. Правый блок (шаблон + координаты) =====
-    frame_right = tk.Frame(frame_extra)
-    frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
-
-    btn_align = tk.Button(frame_extra, text="Выровнять по распознанным", command=align_by_recognized)
-    btn_align.pack(side=tk.LEFT, padx=2)
-
-    # Элементы ввода (расширенные поля)
-    lbl_pattern = tk.Label(frame_right, text="Шаблон:")
-    regex_pattern_entry = tk.Entry(frame_right, width=25)  # Увеличенная ширина
-    coordinates_entry = tk.Entry(frame_right, width=20)  # Увеличенная ширина
-
-    # Упаковка правого блока
-    lbl_pattern.pack(side=tk.LEFT, padx=2)
-    regex_pattern_entry.pack(side=tk.LEFT, padx=2)
-    coordinates_entry.pack(side=tk.LEFT, padx=2)
-
-
-    ###########
-
-    # Инициализация полей
-    regex_pattern_entry.insert(0, regex_pattern)
-    coordinates_entry.bind("<KeyRelease>", update_coordinates)
-
-
-
-
-
-
-    # Создание холстов и таблицы
-    frame_canvases = tk.Frame(root)
-    frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
-
-    canvas_width = 750 // 2
-    canvas_height = 500
-
-    # Левый холст (PDF)
-    canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
-    canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
-
-    # Правый холст (выделенная область)
-    canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
-    canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
-
-    # Обёртка для таблицы Treeview
-    table_frame = tk.Frame(frame_canvases)
-    table_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    # Создание Treeview с прокруткой
-    tree_scroll = tk.Scrollbar(table_frame)
-    tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-    tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
-    tree.pack(fill=tk.BOTH, expand=True)
-
-    tree_scroll.config(command=tree.yview)
-
-    # Настройка колонок
-    tree["columns"] = ("number", "expected", "recognized", "match", "score")
-    tree.column("#0", width=0, stretch=tk.NO)  # Скрытая колонка
-    tree.column("number", width=50, anchor=tk.CENTER)
-    tree.column("expected", width=150, anchor=tk.W)
-    tree.column("recognized", width=150, anchor=tk.W)
-    tree.column("match", width=150, anchor=tk.W)
-    tree.column("score", width=100, anchor=tk.CENTER)
-
-    # Заголовки
-    tree.heading("number", text="№")
-    tree.heading("expected", text="Контейнер из XLS")
-    tree.heading("recognized", text="Контейнер распознанный")
-    tree.heading("match", text="Совпадение")
-    tree.heading("score", text="Коэффициент")
-
-    # Привязка события двойного клика для перехода к странице
-    # tree.bind("<Double-1>", lambda e: on_tree_double_click())
-    # tree.bind("<Double-1>", on_cell_double_click)
-    # tree.bind("<Button-1>", on_tree_click)
-    tree.bind("<Button-1>", on_tree_click)
-
-    # Настройка обработчиков событий для холстов
-    canvas.bind("<Button-1>", define_coordinates)
-    canvas.bind("<B1-Motion>", draw_rectangle)
-    canvas.bind("<ButtonRelease-1>", finish_coordinates)
-    canvas.bind("<MouseWheel>", zoom_canvas)
-    canvas2.bind("<MouseWheel>", zoom_canvas2)
-
-    # Текстовое поле вывода
-    text_output = scrolledtext.ScrolledText(root, width=100, height=10)
-    text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
-    text_output.config(state="normal")
-    sys.stdout = TextRedirector(text_output)
-
-    set_default_coordinates(coordinates_entry)
-    toggle_extra_options()
-
-
+        logger.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
 
 def toggle_extra_options():
     global frame_extra, extra_mode
-
     if extra_mode.get():
         if not frame_extra.winfo_ismapped():
             # frame_extra.pack(fill="x", padx=10, pady=5, before=frame_main)
             frame_extra.pack(fill="x", padx=10, pady=5, before=frame_canvases)
-
     else:
         if frame_extra.winfo_ismapped():
             frame_extra.pack_forget()
-
 
 
 def create_interface():
@@ -1638,7 +1122,6 @@ def create_interface():
     global debug_mode
     global extra_mode, frame_extra
     global frame_main, frame_canvases
-
 
     root = tk.Tk()
     extra_mode = tk.BooleanVar(value=False)
@@ -1680,7 +1163,6 @@ def create_interface():
     btn_match.grid(row=0, column=4, padx=5, pady=5)
     btn_save.grid(row=0, column=5, padx=5, pady=5)
 
-####
 
     frame_left = tk.Frame(frame_main)
     frame_left.pack(side=tk.LEFT, fill="x", expand=False)
@@ -1692,9 +1174,6 @@ def create_interface():
     btn_save_page = tk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
     extra_checkbutton = tk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
 
-    # link = tk.Label(frame_main, text="Скачать новую версию", fg="blue", cursor="hand2")
-    # link.pack()
-    # link.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://..."))
 
     btn_prev.pack(side=tk.LEFT, padx=2)
     btn_next.pack(side=tk.LEFT, padx=2)
@@ -1743,9 +1222,6 @@ def create_interface():
     frame_right = tk.Frame(frame_extra)
     frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
 
-    # btn_align = tk.Button(frame_extra, text="Выровнять по распознанным", command=align_by_recognized)
-    # btn_align.pack(side=tk.LEFT, padx=2)
-
     lbl_pattern = tk.Label(frame_right, text="Шаблон:")
     regex_pattern_entry = tk.Entry(frame_right, width=25)
     coordinates_entry = tk.Entry(frame_right, width=20)
@@ -1756,9 +1232,6 @@ def create_interface():
 
     regex_pattern_entry.insert(0, regex_pattern)
     coordinates_entry.bind("<KeyRelease>", update_coordinates)
-
-
-    # ... (оставшаяся часть create_interface без изменений)
 
 
     # Создание холстов и таблицы
@@ -1807,9 +1280,6 @@ def create_interface():
     tree.heading("score", text="Коэффициент")
 
     # Привязка события двойного клика для перехода к странице
-    # tree.bind("<Double-1>", lambda e: on_tree_double_click())
-    # tree.bind("<Double-1>", on_cell_double_click)
-    # tree.bind("<Button-1>", on_tree_click)
     tree.bind("<Button-1>", on_tree_click)
 
     # Настройка обработчиков событий для холстов
@@ -1828,62 +1298,14 @@ def create_interface():
     set_default_coordinates(coordinates_entry)
 
     toggle_extra_options()
+    logger.update_gui_handler(text_output)
 
-
-
-
-def align_by_recognized():
-    global tree
-
-    items = list(tree.get_children())
-    used_indices = set()
-
-    for i in range(len(items)):
-        item_i = items[i]
-        values_i = list(tree.item(item_i, 'values'))
-        recognized = values_i[2]  # Распознанный контейнер
-
-        if not recognized:
-            continue
-
-        best_score = 0
-        best_j = -1
-
-        for j in range(len(items)):
-            if j == i or j in used_indices:
-                continue
-
-            item_j = items[j]
-            values_j = list(tree.item(item_j, 'values'))
-            expected = values_j[1]  # Контейнер из XLS
-
-            if not expected:
-                continue
-
-            score = is_similar_ratio(recognized, expected)
-            if score > best_score:
-                best_score = score
-                best_j = j
-
-        if best_j != -1:
-            item_j = items[best_j]
-
-            # Меняем местами ТОЛЬКО столбец "Контейнер из XLS" (index 1)
-            val_i = list(tree.item(item_i, 'values'))
-            val_j = list(tree.item(item_j, 'values'))
-
-            val_i[1], val_j[1] = val_j[1], val_i[1]
-
-            tree.item(item_i, values=val_i)
-            tree.item(item_j, values=val_j)
-
-            used_indices.add(best_j)
 
 
 def update_debug_mode():
     """Обновляет режим отладки при изменении чекбокса"""
     global debug_mode
-    print(f"Debug mode: {debug_mode.get()}")
+    logger.info(f"Debug mode: {debug_mode.get()}")
 
 
 def on_tree_click(event):
@@ -1920,36 +1342,6 @@ def goto_page(item):
         except ValueError:
             pass
 
-def edit_cell2(item, column):
-    """Редактирование ячейки"""
-    x, y, width, height = tree.bbox(item, "#4")
-    current_value = tree.item(item, "values")[3]  # Столбец "Совпадение"
-
-    # Создаем поле для редактирования
-    entry_edit = tk.Entry(tree, borderwidth=0, font=('Arial', 10))
-    entry_edit.place(x=x, y=y, width=width, height=height, anchor=tk.NW)
-    entry_edit.insert(0, current_value)
-    entry_edit.select_range(0, tk.END)
-    entry_edit.focus_set()
-
-    def save_edit(event=None):
-        """Сохранение отредактированного значения"""
-        new_value = entry_edit.get()
-        values = list(tree.item(item, "values"))
-        values[3] = new_value
-
-        # Пересчитываем коэффициент
-        recognized = values[2] if len(values) > 2 else ""
-        if recognized and new_value:
-            score = is_similar_ratio(recognized, new_value)
-            values[4] = f"{score:.2f}"
-            update_row_color(item, score)
-
-        tree.item(item, values=values)
-        entry_edit.destroy()
-
-    entry_edit.bind("<Return>", save_edit)
-    entry_edit.bind("<FocusOut>", save_edit)
 
 def edit_cell(item, column):
     global expected_containers  # предполагаем, что это список контейнеров из XLS
@@ -1994,36 +1386,6 @@ def edit_cell(item, column):
         else:
             listbox.place_forget()
 
-    def on_key_release2(event):
-        if event.keysym in ("Up", "Down", "Return"):
-            return  # Эти клавиши обрабатываются отдельно
-
-        # Преобразуем ввод в верхний регистр
-        pos = entry_edit.index(tk.INSERT)
-        text = entry_edit.get().upper()
-        entry_edit.delete(0, tk.END)
-        entry_edit.insert(0, text)
-        entry_edit.icursor(pos)
-
-        update_listbox()
-
-    def on_key_release3(event):
-        if not first_input["done"]:
-            entry_edit.delete(0, tk.END)
-            first_input["done"] = True
-
-        if event.keysym in ("Up", "Down", "Return"):
-            return
-
-        # Преобразуем ввод в верхний регистр
-        pos = entry_edit.index(tk.INSERT)
-        text = entry_edit.get().upper()
-        entry_edit.delete(0, tk.END)
-        entry_edit.insert(0, text)
-        entry_edit.icursor(pos)
-
-        update_listbox()
-
     def on_key_release(event):
         if not first_input["done"]:
             char = event.char.upper()  # сохраняем первый введённый символ (в верхнем регистре)
@@ -2045,19 +1407,6 @@ def edit_cell(item, column):
         entry_edit.icursor(pos)
 
         update_listbox()
-
-    def on_entry_key2(event):
-        if event.keysym == "Down" and listbox.size() > 0:
-            listbox.focus_set()
-            listbox.selection_clear(0, tk.END)
-            listbox.selection_set(0)
-            listbox.activate(0)
-            return "break"
-        elif event.keysym == "Return":
-            # Если список подсказок скрыт — считаем это завершением ввода
-            if not listbox.winfo_ismapped():
-                save_edit()
-                return "break"
 
     def on_entry_key(event):
         if event.keysym == "Down" and listbox.size() > 0:
@@ -2200,9 +1549,9 @@ def load_registry():
                 tree.item(table_entries[i]["item_id"], values=current_values)
 
         messagebox.showinfo("Успех",f"Загружено {len(container_data)} контейнеров")
-
+        logger.info(f"Загружено {len(container_data)} контейнеров")
     except Exception as e:
-        logging.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
+        logger.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
 
 
@@ -2232,9 +1581,9 @@ def init_ocr_engine():
             "EasyOCR": "pip install easyocr",
             "PaddleOCR": "pip install paddlepaddle paddleocr"
         }.get(selected_engine, f"pip install {selected_engine.lower()}")
-        logging.error("Ошибка", f"Не хватает зависимостей!\nУстановите:\n{error_msg}")
+        logger.error("Ошибка", f"Не хватает зависимостей!\nУстановите:\n{error_msg}")
     except Exception as e:
-        logging.error("Ошибка", f"Не удалось инициализировать {selected_engine}: {e!s}")
+        logger.error("Ошибка", f"Не удалось инициализировать {selected_engine}: {e!s}")
         ocr_reader = None
 
 
@@ -2269,7 +1618,7 @@ def on_match_edit(row_index):
     if 0 <= row_index < len(table_entries):
         new_value = table_entries[row_index]["match_var"].get()
         # Здесь можно добавить логику обработки изменений
-        print(f"Изменено совпадение для строки {row_index + 1}: {new_value}")
+        logger.info(f"Изменено совпадение для строки {row_index + 1}: {new_value}")
         # Обновляем расчет коэффициента
         update_score(row_index)
 
@@ -2299,7 +1648,6 @@ def _check_updates():
         repo_url = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
         response = requests.get(repo_url, timeout=5)
 
-        response = requests.get(repo_url)
         if response.status_code == 200:
             latest_release = response.json()
             latest_version = latest_release["tag_name"].lstrip("v")  # Убираем префикс 'v'
@@ -2307,15 +1655,18 @@ def _check_updates():
 
             # Сравниваем текущую версию с последней на GitHub
             if compare_versions(__version__, latest_version):
-                text_output.delete(1.0, tk.END)
-                text_output.insert(
-                    tk.END,
-                    f"Появилась новая версия {latest_version}, рекомендуется обновиться\n",
-                )
-                text_output.insert(tk.END, download_url)
+                logger.info(f"Появилась новая версия {latest_version}, рекомендуется обновиться\n")
+                # text_output.delete(1.0, tk.END)
+                # text_output.insert(
+                #     tk.END,
+                #     f"Появилась новая версия {latest_version}, рекомендуется обновиться\n",
+                # )
+                logger.info(f"{download_url}")
+                # text_output.insert(tk.END, download_url)
             else:
-                text_output.delete(1.0, tk.END)
-                text_output.insert(tk.END, "У вас последняя версия.")
+                logger.info(f"У вас последняя версия.\n")
+                # text_output.delete(1.0, tk.END)
+                # text_output.insert(tk.END, f"У вас последняя версия.\n")
     except Exception:
         pass  # Не блокировать интерфейс при ошибках
 
@@ -2370,12 +1721,19 @@ def main():
         check_for_updates()
         root.mainloop()  # Запуск цикла обработки событий
     except KeyboardInterrupt:
-        print("Программа завершена пользователем.")
+        logger.info("Программа завершена пользователем.")
         root.quit()  # Завершаем работу Tkinter, если прервано вручную
 
 
 # Запуск программы
 if __name__ == "__main__":
+    # Настройка логгера (один раз при запуске приложения)
+    logger.setup(
+        log_file='main_app.log',
+        gui_widget=None,  # Будет установлен позже в GUI
+        max_log_size=10 * 1024 * 1024,  # 10 MB
+        backup_count=5,
+        log_level='DEBUG'  # 'INFO' в продакшене
+    )
+    logger.info("test ok")
     main()
-    # cProfile.run('main()', 'output.prof')  # Запуск профилирования
-

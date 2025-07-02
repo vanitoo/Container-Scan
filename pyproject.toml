@@ -19,14 +19,10 @@ select = [
   "SIM", # flake8-simplify
   "PTH", # flake8-use-pathlib
   "RUF", # ruff-specific rules
-  "UP",  # pyupgrade
+  "UP"  # pyupgrade
 ]
 ignore = [
-  "B904",
-  "EM101",
-  "RUF100",
-  "RUF003",
-
+  "B904", "EM101", "RUF100", "RUF003", "RUF001", "RUF002"
 ]
 
 [tool.ruff.lint]
