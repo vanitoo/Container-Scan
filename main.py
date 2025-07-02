@@ -19,6 +19,7 @@ import requests
 from dotenv import load_dotenv, set_key
 from PIL import Image, ImageTk
 
+from auto_updater import AutoUpdater
 from custom_logger import logger
 from version import __version__  # Импортируем номер версии
 
@@ -1686,14 +1687,19 @@ def main():
         read_env()
 
         # Проверка замены main_new → main ДО запуска интерфейса
-        # AutoUpdater.check_post_restart()
+        AutoUpdater.check_post_restart()
         create_interface()  # Создание интерфейса
 
-        # Проверка обновлений ПОСЛЕ интерфейса (root уже есть)
-        # updater = AutoUpdater(root)
-        # updater.check_for_update()
+        # Обновление статуса перед проверкой обновлений
+        logger.info("Проверка обновлений...")
 
-        check_for_updates()
+        updater = AutoUpdater(root)
+        updater.check_for_update()  # Здесь будет проверка наличия обновлений
+
+        # Если обновление доступно, то после загрузки обновления приложение будет перезапущено.
+        logger.info("Готово")
+        # check_for_updates()
+
         root.mainloop()  # Запуск цикла обработки событий
     except KeyboardInterrupt:
         logger.info("Программа завершена пользователем.")
