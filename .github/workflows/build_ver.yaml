@@ -1,0 +1,83 @@
+name: Build and Release .exe
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
+
+    - name: Install MinGW for strip
+      run: |
+        choco install mingw -y
+        $env:PATH = "C:\ProgramData\chocolatey\bin;" + $env:PATH
+      shell: pwsh
+
+    - name: Get version from version.py
+      id: get_version
+      run: |
+        $version = (Get-Content version.py | Select-String '__version__ = "(.*)"').Matches.Groups[1].Value
+        echo "version=$version" >> $env:GITHUB_OUTPUT
+      shell: pwsh
+
+    - name: Build .exe with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --clean --strip main.py
+
+    - name: Upload .exe artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: main.exe
+        path: dist/main.exe
+
+    - name: Create GitHub Release
+      id: create_release
+      run: |
+        $version = "${{ steps.get_version.outputs.version }}"
+        $release_tag = "v$version"
+        
+        # Проверка существования тега
+        $existing_tags = git ls-remote --tags origin | ForEach-Object { $_ -replace '.*/(v\d+\.\d+\.\d+)$', '$1' }
+        
+        if ($existing_tags -contains $release_tag) {
+            Write-Host "Tag $release_tag already exists. Using existing tag."
+        } else {
+            Write-Host "Creating new tag: $release_tag"
+            git tag $release_tag
+            git push origin $release_tag
+        }
+        
+        gh release create $release_tag dist/main.exe --title "Release $release_tag" --notes "Release notes for $release_tag"
+      shell: pwsh
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Create GitHub Release in another repository
+      run: |
+        $version = "${{ steps.get_version.outputs.version }}"
+        $release_tag = "v$version"
+        
+        gh release create $release_tag dist/main.exe --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $release_tag" --notes "Release notes for $release_tag" --generate-notes
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
