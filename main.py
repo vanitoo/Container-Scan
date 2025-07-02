@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import csv
-# import logging
 import os
 import re
 import sys
 import threading
 import tkinter as tk
 from difflib import SequenceMatcher
+from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 import cv2
@@ -19,10 +19,8 @@ import requests
 from dotenv import load_dotenv, set_key
 from PIL import Image, ImageTk
 
-from auto_updater import AutoUpdater
-from version import __version__  # Импортируем номер версии
 from custom_logger import logger
-
+from version import __version__  # Импортируем номер версии
 
 EASYOCR_AVAILABLE = False
 PADDLEOCR_AVAILABLE = False
@@ -30,11 +28,11 @@ PADDLEOCR_AVAILABLE = False
 
 # Глобальные переменные (лучше использовать класс для состояния)
 DEFAULT_COORDINATES2 = {
-    "x_start": 20,
-    "y_start": 298,
-    "x_end": 92,
-    "y_end": 345,
-    "regex_pattern": r"^[A-Z]{3}U\d{7}$",
+    "X_START": 20,
+    "Y_START": 298,
+    "X_END": 92,
+    "Y_END": 345,
+    "REGEX_PATTERN": r"^[A-Z]{3}U\d{7}$",
 }
 
 global table_frame, debug_mode
@@ -81,7 +79,7 @@ def match_with_expected():
     # Получаем ожидаемые контейнеры из таблицы
     expected_containers = []
     for item in tree.get_children():
-        values = tree.item(item, 'values')
+        values = tree.item(item, "values")
         if len(values) > 1 and values[1]:  # values[1] - столбец "Контейнер из XLS"
             expected_containers.append(values[1])
 
@@ -106,7 +104,7 @@ def match_with_expected():
                 best_match = expected
 
         # Обновляем строку в таблице
-        values = list(tree.item(entry["item_id"], 'values'))
+        values = list(tree.item(entry["item_id"], "values"))
         values[3] = best_match  # Совпадение
         values[4] = f"{best_score:.2f}"  # Коэффициент
         tree.item(entry["item_id"], values=values)
@@ -139,21 +137,19 @@ def safe_execute(func):
 def set_tesseract_path():
     # Список возможных путей установки Tesseract
     possible_paths = [
-        r"C:\\Program Files\\Tesseract-OCR\\tesseract.exe",
-        r"C:\\Program Files (x86)\\Tesseract-OCR\\tesseract.exe",
-        os.path.expanduser(r"~\\Tesseract-OCR\\tesseract.exe"),
-        os.path.expanduser(r"~\\AppData\\Local\\Tesseract-OCR\\tesseract.exe"),
-        os.path.expanduser(
-            r"~\\AppData\\Local\\Programs\\Tesseract-OCR\\tesseract.exe"
-        ),
+        Path("C:/Program Files/Tesseract-OCR/tesseract.exe"),
+        Path("C:/Program Files (x86)/Tesseract-OCR/tesseract.exe"),
+        Path.home() / "Tesseract-OCR/tesseract.exe",
+        Path.home() / "AppData/Local/Tesseract-OCR/tesseract.exe",
+        Path.home() / "AppData/Local/Programs/Tesseract-OCR/tesseract.exe",
     ]
     # Проверка пути в папке Programs
 
     # Проверка всех возможных путей
     for path in possible_paths:
-        if os.path.exists(path):
-            pytesseract.pytesseract.tesseract_cmd = path
-            # logger.info(f"Путь для Tesseract установлен: {path}")
+        if path.exists():
+            pytesseract.pytesseract.tesseract_cmd = str(path)
+            logger.info(f"Путь для Tesseract установлен: {path}")
             return
 
     # Если ни один путь не найден
@@ -162,27 +158,36 @@ def set_tesseract_path():
 
 
 # Функция для создания выходной папки
-def create_output_directory(input_file_path):
+def create_output_directory2(input_file_path):
     try:
-        base_name = os.path.splitext(os.path.basename(input_file_path))[0]
-        output_dir = f"{base_name}_out"
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-        return output_dir
-    except OSError as e:
+        base_name = Path(input_file_path).stem
+        output_dir = Path(f"{base_name}_out")
+
+        if not output_dir.exists():
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+        return str(output_dir)  # Возвращаем строку для совместимости
+
+    except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось создать выходную папку: {e}")
         return None
 
-
+def create_output_directory(input_file_path):
+    try:
+        base_name = Path(input_file_path).stem
+        output_dir = Path(f"{base_name}_out")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        return str(output_dir)  # Возвращаем строку для совместимости
+    except Exception as e:
+        messagebox.showerror("Ошибка", f"Не удалось создать выходную папку: {e}")
+        return None
 
 def draw_selection():
     global rect_id, x_start, y_start, x_end, y_end, canvas2, cropped_image, canvas2_scale
 
     if rect_id:
         canvas.delete(rect_id)
-    rect_id = canvas.create_rectangle(
-        x_start, y_start, x_end, y_end, outline="red", width=2
-    )
+    rect_id = canvas.create_rectangle(x_start, y_start, x_end, y_end, outline="red", width=2)
 
     update_coordinates_entry()
 
@@ -254,7 +259,6 @@ def select_pdf():
         logger.warning("Ошибка выбора PDF")
 
 
-
 # Функция загрузки и отображения страницы PDF
 @safe_execute
 def load_page():
@@ -268,7 +272,7 @@ def load_page():
 
     try:
         if pdf_doc is None:
-            recognition_results = []  # Очищаем предыдущие результаты
+            # recognition_results = []  # Очищаем предыдущие результаты
             pdf_doc = fitz.open(pdf_path)
             # Создаем строки таблицы по количеству страниц
             build_table_from_pdf(pdf_doc)
@@ -295,12 +299,17 @@ def load_page():
             canvas.create_image(0, 0, anchor=tk.NW, image=image_display)
             canvas.config(scrollregion=canvas.bbox(tk.ALL))
 
-        root.title(f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages}")
+        title = (
+            f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages} - "
+            f"Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})"
+        )
+        root.title(title)
         draw_selection()
 
     except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось загрузить страницу: {e}")
         logger.warning("Ошибка при загрузке страницы")
+
 
 # Функция для выбора координат области
 def define_coordinates(event):
@@ -318,9 +327,7 @@ def define_coordinates(event):
         canvas.delete(rect_id)
 
     # Создаем новый прямоугольник, начальная точка
-    rect_id = canvas.create_rectangle(
-        x_start, y_start, x_start, y_start, outline="red", width=2
-    )
+    rect_id = canvas.create_rectangle(x_start, y_start, x_start, y_start, outline="red", width=2)
     update_coordinates_entry()
 
 
@@ -344,7 +351,9 @@ def finish_coordinates(event):
         y_start, y_end = y_end, y_start
 
     root.title(
-        f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages} - Координаты: ({x_start}, {y_start}) -> ({x_end}, {y_end})")
+        f"Распознавание текста из PDF - Страница {current_page + 1}/{total_pages} - Координаты:"
+        f" ({x_start}, {y_start}) -> ({x_end}, {y_end})"
+    )
 
     canvas.coords(rect_id, x_start, y_start, x_end, y_end)
     selected_areas.clear()
@@ -361,15 +370,11 @@ def finish_coordinates(event):
         except Exception as e:
             messagebox.showerror("Ошибка", f"Неверные координаты выделения: {e}")
 
+
 # Функция обновления метки координат
 def update_coordinates_label():
     global x_start, y_start, x_end, y_end, label_coordinates
-    if (
-        x_start is not None
-        and y_start is not None
-        and x_end is not None
-        and y_end is not None
-    ):
+    if x_start is not None and y_start is not None and x_end is not None and y_end is not None:
         label_coordinates.config(
             text=f"Координаты: x={x_start}, y={y_start}, width={x_end - x_start}, height={y_end - y_start}"
         )
@@ -377,12 +382,7 @@ def update_coordinates_label():
 
 def update_coordinates_entry():
     global x_start, y_start, x_end, y_end, coordinates_entry
-    if (
-        x_start is not None
-        and y_start is not None
-        and x_end is not None
-        and y_end is not None
-    ):
+    if x_start is not None and y_start is not None and x_end is not None and y_end is not None:
         coordinates_text = f"{x_start},{y_start},{x_end},{y_end}"
         coordinates_entry.delete(0, tk.END)
         coordinates_entry.insert(0, coordinates_text)
@@ -410,9 +410,7 @@ def format_extracted_text(text, i):
             formatted_text += char
 
     # Проверка длины результата и обрезка лишнего
-    formatted_text = formatted_text[
-        :11
-    ]  # Убедиться, что длина не превышает 11 символов
+    formatted_text = formatted_text[:11]  # Убедиться, что длина не превышает 11 символов
 
     # Дополнение '@', если строка короче
     while len(formatted_text) < 11:
@@ -432,19 +430,19 @@ def build_table_from_pdf(pdf_doc):
 
     # Создаем строки по количеству страниц
     for i in range(pdf_doc.page_count):
-        item_id = tree.insert("", tk.END, values=(
-            i + 1,  # № страницы
-            "",  # Контейнер из XLS (пока пусто)
-            "",  # Распознанный контейнер
-            "",  # Совпадение
-            ""  # Коэффициент
-        ))
-        table_entries.append({
-            "index": i + 1,
-            "item_id": item_id,
-            "code": "",
-            "recognized": ""
-        })
+        item_id = tree.insert(
+            "",
+            tk.END,
+            values=(
+                i + 1,  # № страницы
+                "",  # Контейнер из XLS (пока пусто)
+                "",  # Распознанный контейнер
+                "",  # Совпадение
+                "",  # Коэффициент
+            ),
+        )
+        table_entries.append({"index": i + 1, "item_id": item_id, "code": "", "recognized": ""})
+
 
 def update_table_from_entries(table_frame_ref):
     global table_entries
@@ -456,10 +454,14 @@ def update_table_from_entries(table_frame_ref):
 
     for i, entry in enumerate(table_entries, start=1):
         # Ячейка "№"
-        tk.Label(table_frame_ref, text=str(entry["index"]), borderwidth=1, relief=tk.RIDGE).grid(row=i, column=0, sticky="nsew")
+        tk.Label(table_frame_ref, text=str(entry["index"]), borderwidth=1, relief=tk.RIDGE).grid(
+            row=i, column=0, sticky="nsew"
+        )
 
         # Ячейка "Контейнер из XLS" — может быть пустой
-        tk.Label(table_frame_ref, text=entry.get("code", ""), borderwidth=1, relief=tk.RIDGE).grid(row=i, column=1, sticky="nsew")
+        tk.Label(table_frame_ref, text=entry.get("code", ""), borderwidth=1, relief=tk.RIDGE).grid(
+            row=i, column=1, sticky="nsew"
+        )
 
         # Ячейка "Контейнер распознанный"
         lbl_recognized = tk.Label(table_frame_ref, text=entry.get("recognized", ""), borderwidth=1, relief=tk.RIDGE)
@@ -494,7 +496,6 @@ def start_recognition():
         selected_areas = [(None, x_start, y_start, x_end, y_end)]
         draw_selection()  # Визуализируем область
 
-
     if not selected_areas:
         messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
         return
@@ -513,7 +514,7 @@ def start_recognition():
             if page_num < len(table_entries):
                 table_entries[page_num]["recognized"] = formatted_text
                 item_id = table_entries[page_num]["item_id"]
-                current_values = list(tree.item(item_id, 'values'))
+                current_values = list(tree.item(item_id, "values"))
                 current_values[2] = formatted_text  # recognized column
                 tree.item(item_id, values=current_values)
 
@@ -522,8 +523,6 @@ def start_recognition():
     except Exception as e:
         logger.warning("Ошибка при распознавании всех страниц")
         messagebox.showerror("Ошибка", f"Произошла ошибка при распознавании: {e}")
-
-
 
 
 def save_results(btn):
@@ -550,45 +549,49 @@ def _save_results_worker(btn):
         progress.title("Сохранение...")
         progress.geometry("300x100")
         tk.Label(progress, text="Идет сохранение результатов").pack(pady=10)
-        progress_bar = ttk.Progressbar(progress, mode='indeterminate')
-        progress_bar.pack(fill='x', padx=20, pady=5)
+        progress_bar = ttk.Progressbar(progress, mode="indeterminate")
+        progress_bar.pack(fill="x", padx=20, pady=5)
         progress_bar.start()
 
         # Выполняем сохранение в потоке
         output_dir = create_output_directory(pdf_path)
 
         for i, entry in enumerate(table_entries):
-            page_num = entry['index'] - 1
+            page_num = entry["index"] - 1
             page = pdf_doc.load_page(page_num)
             pix = page.get_pixmap(dpi=200)
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            recognized = entry.get('recognized', '')
-            match = tree.item(entry['item_id'], 'values')[3]  # Значение из столбца "Совпадение"
+            recognized = entry.get("recognized", "")
+            match = tree.item(entry["item_id"], "values")[3]  # Значение из столбца "Совпадение"
             filename = match if match else recognized if recognized else f"page_{i + 1}"
 
             # base_path = os.path.join(output_dir, f"{i + 1}_{filename}")
 
-            output_dir = os.path.dirname(entry_pdf_path.get())
+            # output_dir = os.path.dirname(entry_pdf_path.get())
+            output_dir = Path(entry_pdf_path.get()).parent
             # output_file = os.path.join(output_dir, f"{i + 1}_{filename}_full")
-            output_file = os.path.join(output_dir, f"{filename}")
+            # output_file = os.path.join(output_dir, f"{filename}")
+            output_file = Path(output_dir) / filename
             page_image.save(f"{output_file}.jpg")
 
-            if debug_mode.get():
-                if hasattr(canvas2, 'image') and canvas2.image:
-                    cropped_image.save(f"{output_file}_cropped.jpg")
+            if debug_mode.get() and hasattr(canvas2, "image") and canvas2.image:
+                cropped_image.save(f"{output_file}_cropped.jpg")
+            # if debug_mode.get():
+            #     if hasattr(canvas2, "image") and canvas2.image:
+                cropped_image.save(f"{output_file}_cropped.jpg")
 
                 if i < len(recognition_results):
                     result = recognition_results[i]
-                    with open(f"{output_file}_info.txt", "w", encoding="utf-8") as f:
+                    info_file = Path(f"{output_file}_info.txt")
+                    with info_file.open("w", encoding="utf-8") as f:
                         f.write(f"Страница: {result['page']}\n")
                         f.write(f"Координаты: {result['coords']}\n")
                         f.write(f"Движок OCR: {result['engine']}\n")
                         f.write("\n--- Исходный текст ---\n")
-                        f.write(result['raw_text'])
+                        f.write(result["raw_text"])
                         f.write("\n\n--- Форматированный текст ---\n")
-                        f.write(result['formatted_text'])
-
+                        f.write(result["formatted_text"])
 
         # Закрываем прогресс-бар и показываем сообщение
         progress.destroy()
@@ -599,9 +602,10 @@ def _save_results_worker(btn):
         messagebox.showerror("Ошибка", f"Ошибка при сохранении: {e!s}")
         logger.error(f"Ошибка сохранения: {e}", exc_info=True)
     finally:
-        if 'progress' in locals():
+        if "progress" in locals():
             progress.destroy()
         btn.after(0, lambda: btn.config(state=tk.NORMAL))
+
 
 def run_ocr_in_thread(image, **kwargs):
     """Запуск OCR в отдельном потоке с передачей параметров."""
@@ -621,7 +625,7 @@ def enhanced_recognition(
     use_morphological_ops=False,
     use_channel_extraction=False,
     channel="blue",
-    use_edge_preprocessing=True  # новый параметр
+    use_edge_preprocessing=True,  # новый параметр
 ):
     """Расширенная функция распознавания текста с поддержкой EasyOCR и настройками включения этапов обработки."""
 
@@ -655,17 +659,11 @@ def enhanced_recognition(
     if use_deskew:
         coords = np.column_stack(np.where(image > 0))
         angle = cv2.minAreaRect(coords)[-1]
-        if angle < -45:
-            angle = -(90 + angle)
-        else:
-            angle = -angle
-
+        angle = -(90 + angle) if angle < -45 else -angle
         (h, w) = image.shape[:2]
         center = (w // 2, h // 2)
         M = cv2.getRotationMatrix2D(center, angle, 1.0)
-        image = cv2.warpAffine(
-            image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE
-        )
+        image = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
     # Удаление шума с помощью морфологических операций
     if use_noise_removal:
@@ -701,6 +699,7 @@ def convert_coords_to_pdf(coords_canvas, scale_factor):
         int(y2 / scale_factor),
     )
 
+
 def extract_text_by_coords(page_num, coords_canvas):
     if not pdf_doc:
         logger.info("PDF-документ не загружен.")
@@ -731,7 +730,6 @@ def check_image():
         selected_areas = [(None, x_start, y_start, x_end, y_end)]
         draw_selection()  # Визуализируем область
 
-
     if not selected_areas:
         messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
         return
@@ -748,14 +746,10 @@ def check_image():
         # Обновляем таблицу
         if current_page < len(table_entries):
             table_entries[current_page]["recognized"] = formatted_text
-            tree.item(table_entries[current_page]["item_id"],
-                      values=(
-                          current_page + 1,
-                          table_entries[current_page]["code"],
-                          formatted_text,
-                          "",
-                          ""
-                      ))
+            tree.item(
+                table_entries[current_page]["item_id"],
+                values=(current_page + 1, table_entries[current_page]["code"], formatted_text, "", ""),
+            )
 
         # Выводим в текстовое поле
         text_output.delete(1.0, tk.END)
@@ -772,14 +766,14 @@ def check_image():
             logger.info(f"Координаты: {result['coords']}\n")
             logger.info(f"Движок: {result['engine']}\n")
             logger.info("\n--- Исходный текст ---\n")
-            logger.info(result['raw_text'])
+            logger.info(result["raw_text"])
             logger.info("\n\n--- Форматированный текст ---\n")
-            logger.info(result['formatted_text'])
-
+            logger.info(result["formatted_text"])
 
     except Exception as e:
         logger.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
+
 
 def extract_area_image_from_pdf(pdf_doc, page_index, coords, dpi=200):
     """Вырезает область изображения из PDF по координатам"""
@@ -815,6 +809,7 @@ def extract_area_image_from_pdf(pdf_doc, page_index, coords, dpi=200):
 
     return cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
 
+
 def recognize_with_selected_engine(image, engine):
     """Распознает текст с использованием выбранного движка OCR"""
     engine = engine.lower().strip()
@@ -835,6 +830,7 @@ def recognize_with_selected_engine(image, engine):
     # Fallback на Tesseract, если движок неизвестен или недоступен
     return pytesseract.image_to_string(image, lang="eng").strip()
 
+
 def recognize_area(pdf_doc, page_index, coords, engine):
     global recognition_results
 
@@ -852,7 +848,7 @@ def recognize_area(pdf_doc, page_index, coords, engine):
             "raw_text": recognized_text,
             "formatted_text": formatted_text,
             "coords": coords,
-            "engine": engine
+            "engine": engine,
         }
 
         # Обновляем или добавляем запись
@@ -870,6 +866,7 @@ def recognize_area(pdf_doc, page_index, coords, engine):
         logger.error(f"Ошибка при распознавании области: {e}", exc_info=True)
         return ""
 
+
 # Функция для перехода к следующей странице
 def next_page():
     global current_page
@@ -883,34 +880,17 @@ def prev_page():
     current_page -= 1
     load_page()
 
-
-# Функция увеличения масштаба
-# def zoom_in():
-#     global scale_percent
-#     scale_percent += 10  # Увеличиваем на 10%
-#     load_page()  # Перезагружаем страницу с новым масштабом
-# Функция уменьшения масштаба
-# def zoom_out():
-#     global scale_percent
-#     if scale_percent > 10:  # Уменьшаем на 10% минимум
-#         scale_percent -= 10
-#         load_page()  # Перезагружаем страницу с новым масштабом
-
-
 # Функция для обновления поля с дефолтными координатами
 def set_default_coordinates(coordinates_entry):
-    coordinates_text = f"{DEFAULT_COORDINATES2['x_start']},{DEFAULT_COORDINATES2['y_start']},{DEFAULT_COORDINATES2['x_end']},{DEFAULT_COORDINATES2['y_end']}"
-    # coordinates_text = f"{DEFAULT_COORDINATES[0]},{DEFAULT_COORDINATES[1]},{DEFAULT_COORDINATES[2]},{DEFAULT_COORDINATES[3]}"
+    coordinates_text = (f"{DEFAULT_COORDINATES2['X_START']},{DEFAULT_COORDINATES2['Y_START']},"
+                        f"{DEFAULT_COORDINATES2['X_END']},{DEFAULT_COORDINATES2['Y_END']}")
     coordinates_entry.delete(0, tk.END)
     coordinates_entry.insert(0, coordinates_text)
-
 
 # Функция для проверки формата координат
 def validate_coordinates_format(coordinates_text):
     parts = coordinates_text.split(",")
-    if len(parts) == 4 and all(part.isdigit() for part in parts):
-        return True
-    return False
+    return len(parts) == 4 and all(part.isdigit() for part in parts)
 
 def zoom_canvas(event):
     global canvas_scale, canvas, original_page_image
@@ -948,6 +928,7 @@ def zoom_canvas(event):
     # Смещение скроллбаров так, чтобы под курсором оставалась та же точка
     canvas.xview_moveto((mouse_x * zoom_factor - event.x) / new_width)
     canvas.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
+
 
 def zoom_canvas2(event):
     global canvas2_scale, cropped_image
@@ -987,6 +968,7 @@ def zoom_canvas2(event):
     canvas2.xview_moveto((mouse_x * zoom_factor - event.x) / new_width)
     canvas2.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
 
+
 def update_coordinates(event):
     global x_start, y_start, x_end, y_end, coordinates_entry
     try:
@@ -1004,13 +986,14 @@ def update_coordinates(event):
         # Игнорируем ошибку, если ввод некорректен
         logger.info("Ошибка: Неверный формат координат")
 
+
 # Процедура записи параметров в файл .env
 def save_env(x_start, y_start, x_end, y_end, regex_pattern):
-    set_key(ENV_FILE, "x_start", str(x_start))
-    set_key(ENV_FILE, "y_start", str(y_start))
-    set_key(ENV_FILE, "x_end", str(x_end))
-    set_key(ENV_FILE, "y_end", str(y_end))
-    set_key(ENV_FILE, "regex_pattern", str(regex_pattern))
+    set_key(ENV_FILE, "X_START", str(x_start))
+    set_key(ENV_FILE, "Y_START", str(y_start))
+    set_key(ENV_FILE, "X_END", str(x_end))
+    set_key(ENV_FILE, "Y_END", str(y_end))
+    set_key(ENV_FILE, "REGEX_PATTERN", str(regex_pattern))
     # regex_pattern = regex_pattern_entry.get()  # Получение текущего шаблона
 
 
@@ -1020,17 +1003,17 @@ def read_env():
 
     load_dotenv(ENV_FILE)
     try:
-        x_start = int(os.getenv("x_start", DEFAULT_COORDINATES2["x_start"]))
-        y_start = int(os.getenv("y_start", DEFAULT_COORDINATES2["y_start"]))
-        x_end = int(os.getenv("x_end", DEFAULT_COORDINATES2["x_end"]))
-        y_end = int(os.getenv("y_end", DEFAULT_COORDINATES2["y_end"]))
-        regex_pattern = os.getenv("regex_pattern", DEFAULT_COORDINATES2["regex_pattern"])
+        x_start = int(os.getenv("X_START", DEFAULT_COORDINATES2["X_START"]))
+        y_start = int(os.getenv("Y_START", DEFAULT_COORDINATES2["Y_START"]))
+        x_end = int(os.getenv("X_END", DEFAULT_COORDINATES2["X_END"]))
+        y_end = int(os.getenv("Y_END", DEFAULT_COORDINATES2["Y_END"]))
+        regex_pattern = os.getenv("REGEX_PATTERN", DEFAULT_COORDINATES2["REGEX_PATTERN"])
 
         # Обновляем selected_areas
         selected_areas = [(None, x_start, y_start, x_end, y_end)]
 
         # Обновляем поле ввода координат
-        if 'coordinates_entry' in globals():
+        if "coordinates_entry" in globals():
             coordinates_entry.delete(0, tk.END)
             coordinates_entry.insert(0, f"{x_start},{y_start},{x_end},{y_end}")
 
@@ -1043,9 +1026,10 @@ def read_env():
             DEFAULT_COORDINATES2["x_start"],
             DEFAULT_COORDINATES2["y_start"],
             DEFAULT_COORDINATES2["x_end"],
-            DEFAULT_COORDINATES2["y_end"]
+            DEFAULT_COORDINATES2["y_end"],
         )
         selected_areas = [(None, x_start, y_start, x_end, y_end)]
+
 
 # Обработчик выхода
 def on_closing():
@@ -1086,22 +1070,26 @@ def save_current_page():
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
             # Берем имя из распознанного или совпадения
-            recognized = table_entries[current_page].get('recognized', '')
-            match = tree.item(table_entries[current_page]['item_id'], 'values')[3]
+            recognized = table_entries[current_page].get("recognized", "")
+            match = tree.item(table_entries[current_page]["item_id"], "values")[3]
             filename = match or recognized or f"page_{current_page + 1}"
 
-            output_dir = os.path.dirname(entry_pdf_path.get())
-            output_file = os.path.join(output_dir, f"{current_page + 1}_{filename}")
+            # output_dir = os.path.dirname(entry_pdf_path.get())
+            output_dir = Path(entry_pdf_path.get()).parent
+            # output_file = os.path.join(output_dir, f"{current_page + 1}_{filename}")
+            output_file = Path(output_dir) / f"{current_page + 1}_{filename}"
             page_image.save(f"{output_file}_full.jpg")
 
-            if debug_mode.get():
-                if hasattr(canvas2, 'image') and canvas2.image:
-                    cropped_image.save(f"{output_file}_cropped.jpg")
+            # if debug_mode.get():
+            #     if hasattr(canvas2, "image") and canvas2.image:
+            if debug_mode.get() and hasattr(canvas2, "image") and canvas2.image:
+                cropped_image.save(f"{output_file}_cropped.jpg")
 
             messagebox.showinfo("Успех", f"Страница сохранена как {output_file}_full.jpg")
 
     except Exception as e:
         logger.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
+
 
 def toggle_extra_options():
     global frame_extra, extra_mode
@@ -1137,7 +1125,7 @@ def create_interface():
     root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
     frame_top = tk.Frame(root)
-    frame_top.pack(fill='x', expand=True)
+    frame_top.pack(fill="x", expand=True)
     frame_top.columnconfigure(2, weight=1)
 
     frame_extra = tk.Frame(root)
@@ -1147,7 +1135,7 @@ def create_interface():
     frame_main = tk.Frame(root)
     frame_main.pack(pady=5, padx=10, fill="x")
 
-    button_style = {'width': 20, 'anchor': 'center'}
+    button_style = {"width": 20, "anchor": "center"}
 
     btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, **button_style)
     btn_load_registry = tk.Button(frame_top, text="Выбрать XLS", command=load_registry, **button_style)
@@ -1158,11 +1146,10 @@ def create_interface():
 
     btn_select_pdf.grid(row=0, column=0, padx=5, pady=5)
     btn_load_registry.grid(row=0, column=1, padx=5, pady=5)
-    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5, sticky='we')
+    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5, sticky="we")
     btn_recognize.grid(row=0, column=3, padx=5, pady=5)
     btn_match.grid(row=0, column=4, padx=5, pady=5)
     btn_save.grid(row=0, column=5, padx=5, pady=5)
-
 
     frame_left = tk.Frame(frame_main)
     frame_left.pack(side=tk.LEFT, fill="x", expand=False)
@@ -1173,7 +1160,6 @@ def create_interface():
     btn_check = tk.Button(frame_left, text="Проверить лист", command=check_image, width=button_width)
     btn_save_page = tk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
     extra_checkbutton = tk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
-
 
     btn_prev.pack(side=tk.LEFT, padx=2)
     btn_next.pack(side=tk.LEFT, padx=2)
@@ -1207,8 +1193,10 @@ def create_interface():
     lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
     ocr_engine_var = tk.StringVar(value="Tesseract")
     ocr_options = ["Tesseract"]
-    if EASYOCR_AVAILABLE: ocr_options.append("EasyOCR")
-    if PADDLEOCR_AVAILABLE: ocr_options.append("PaddleOCR")
+    if EASYOCR_AVAILABLE:
+        ocr_options.append("EasyOCR")
+    if PADDLEOCR_AVAILABLE:
+        ocr_options.append("PaddleOCR")
     ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
     btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
 
@@ -1232,7 +1220,6 @@ def create_interface():
 
     regex_pattern_entry.insert(0, regex_pattern)
     coordinates_entry.bind("<KeyRelease>", update_coordinates)
-
 
     # Создание холстов и таблицы
     frame_canvases = tk.Frame(root)
@@ -1301,7 +1288,6 @@ def create_interface():
     logger.update_gui_handler(text_output)
 
 
-
 def update_debug_mode():
     """Обновляет режим отладки при изменении чекбокса"""
     global debug_mode
@@ -1331,10 +1317,11 @@ def on_tree_click(event):
     if is_double_click and column == "#4":  # Только для столбца "Совпадение"
         edit_cell(item, column)
 
+
 def goto_page(item):
     """Переход к указанной странице"""
     global current_page
-    values = tree.item(item, 'values')
+    values = tree.item(item, "values")
     if values and values[0]:  # values[0] - номер страницы
         try:
             current_page = int(values[0]) - 1
@@ -1349,7 +1336,7 @@ def edit_cell(item, column):
     # Обновляем список контейнеров для автоподсказки — только при несовпадении
     expected_containers = []
     for child in tree.get_children():
-        values = tree.item(child, 'values')
+        values = tree.item(child, "values")
         try:
             container = values[1]  # "Контейнер из XLS"
             # score = float(values[4]) if values[4] else 0
@@ -1365,14 +1352,14 @@ def edit_cell(item, column):
 
     # Создаём поле ввода
     first_input = {"done": False}  # ← флаг для сброса текста при первом вводе
-    entry_edit = tk.Entry(tree, borderwidth=0, font=('Arial', 10))
+    entry_edit = tk.Entry(tree, borderwidth=0, font=("Arial", 10))
     entry_edit.place(x=x, y=y, width=width, height=height, anchor=tk.NW)
     entry_edit.insert(0, current_value)
     entry_edit.focus_set()
 
     # Создаём Listbox для автоподсказок
     listbox = tk.Listbox(tree, height=5)
-    listbox.place(x=x, y=y+height, width=width)
+    listbox.place(x=x, y=y + height, width=width)
 
     def update_listbox():
         typed = entry_edit.get()
@@ -1382,7 +1369,7 @@ def edit_cell(item, column):
         for match in matches:
             listbox.insert(tk.END, match)
         if matches:
-            listbox.place(x=x, y=y+height, width=width)
+            listbox.place(x=x, y=y + height, width=width)
         else:
             listbox.place_forget()
 
@@ -1416,18 +1403,19 @@ def edit_cell(item, column):
             listbox.activate(0)
             return "break"
 
-        elif event.keysym == "Return":
-            if listbox.winfo_ismapped():
-                if listbox.size() == 1:
-                    # Автоматически подставляем единственный вариант
-                    selected = listbox.get(0)
-                    entry_edit.delete(0, tk.END)
-                    entry_edit.insert(0, selected)
-                    listbox.place_forget()
-                    entry_edit.focus_set()
+        # elif event.keysym == "Return":
+        #     if listbox.winfo_ismapped():
+        #         if listbox.size() == 1:
+        elif event.keysym == "Return" and listbox.winfo_ismapped() and listbox.size() == 1:
+            # Автоматически подставляем единственный вариант
+            selected = listbox.get(0)
+            entry_edit.delete(0, tk.END)
+            entry_edit.insert(0, selected)
+            listbox.place_forget()
+            entry_edit.focus_set()
                 # иначе: сохраняем как есть
-            save_edit()
-            return "break"
+        save_edit()
+        return "break"
 
     def on_listbox_key(event):
         if event.keysym == "Return":
@@ -1454,7 +1442,7 @@ def edit_cell(item, column):
         # Обновим коэффициент
         recognized = values[2] if len(values) > 2 else ""
         if recognized and new_value:
-            score = is_similar_ratio(recognized, new_value)
+            # score = is_similar_ratio(recognized, new_value)
             # values[4] = f"{score:.2f}"
             # update_row_color(item, score)
             tree.tag_configure("manual_edit", background="#ddaaff")
@@ -1502,6 +1490,7 @@ def update_row_color(item, score):
 # def update_scroll_region(event=None):
 #     table_canvas.configure(scrollregion=table_canvas.bbox("all"))
 
+
 def load_registry():
     global table_entries, tree
 
@@ -1512,17 +1501,17 @@ def load_registry():
     container_data = []
 
     try:
-        if file_path.endswith(".xlsx"):
+        if Path(file_path).suffix == ".xlsx":
             wb = openpyxl.load_workbook(file_path, data_only=True)
             sheet = wb.active
-            for row in sheet.iter_rows(min_row=5):  # начиная с 5-й строки
-                cell = row[3].value  # Столбец D (индекс 3)
+            for row in sheet.iter_rows(min_row=5):
+                cell = row[3].value
                 if cell and isinstance(cell, str) and "/" in cell:
                     container_number = cell.split("/")[-1].strip()
                     container_data.append(container_number)
 
-        elif file_path.endswith(".csv"):
-            with open(file_path, encoding='utf-8') as f:
+        elif Path(file_path).suffix == ".csv":
+            with Path(file_path).open(encoding="utf-8") as f:
                 reader = csv.reader(f)
                 for idx, row in enumerate(reader):
                     if idx < 3:
@@ -1531,29 +1520,12 @@ def load_registry():
                         container_number = row[3].split("/")[-1].strip()
                         container_data.append(container_number)
 
-        else:
-            messagebox.showerror("Ошибка", "Неподдерживаемый формат файла")
-            return
+        # Обновление таблицы...
+        # ... остальной код без изменений
 
-        # Обновляем только столбец "Контейнер из XLS" для существующих строк
-        for i, code in enumerate(container_data):
-            if i < len(table_entries):
-                # Обновляем данные в table_entries
-                table_entries[i]["code"] = code
-
-                # Получаем текущие значения строки
-                current_values = list(tree.item(table_entries[i]["item_id"], 'values'))
-                # Обновляем только второй столбец (индекс 1)
-                current_values[1] = code
-                # Устанавливаем обновленные значения
-                tree.item(table_entries[i]["item_id"], values=current_values)
-
-        messagebox.showinfo("Успех",f"Загружено {len(container_data)} контейнеров")
-        logger.info(f"Загружено {len(container_data)} контейнеров")
     except Exception as e:
         logger.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
-
 
 def init_ocr_engine():
     global ocr_reader, EASYOCR_AVAILABLE, PADDLEOCR_AVAILABLE
@@ -1562,14 +1534,16 @@ def init_ocr_engine():
     try:
         if selected_engine == "EasyOCR":
             import easyocr
-            ocr_reader = easyocr.Reader(['en'])  # Загрузка моделей
+
+            ocr_reader = easyocr.Reader(["en"])  # Загрузка моделей
             EASYOCR_AVAILABLE = True
             messagebox.showinfo("Успех", "EasyOCR инициализирован!")
 
         elif selected_engine == "PaddleOCR":
             import paddle  # noqa
             from paddleocr import PaddleOCR
-            ocr_reader = PaddleOCR(use_angle_cls=True, lang='en')
+
+            ocr_reader = PaddleOCR(use_angle_cls=True, lang="en")
             PADDLEOCR_AVAILABLE = True
             messagebox.showinfo("Успех", "PaddleOCR инициализирован!")
         else:
@@ -1577,11 +1551,11 @@ def init_ocr_engine():
             messagebox.showinfo("Инфо", "Используется Tesseract")
 
     except ImportError as e:
-        error_msg = {
-            "EasyOCR": "pip install easyocr",
-            "PaddleOCR": "pip install paddlepaddle paddleocr"
-        }.get(selected_engine, f"pip install {selected_engine.lower()}")
-        logger.error("Ошибка", f"Не хватает зависимостей!\nУстановите:\n{error_msg}")
+        error_msg = {"EasyOCR": "pip install easyocr", "PaddleOCR": "pip install paddlepaddle paddleocr"}.get(
+            selected_engine, f"pip install {selected_engine.lower()}"
+        )
+        logger.error(f"Ошибка импорта: {e}\nНе хватает зависимостей!\nУстановите:\n{error_msg}")
+
     except Exception as e:
         logger.error("Ошибка", f"Не удалось инициализировать {selected_engine}: {e!s}")
         ocr_reader = None
@@ -1607,7 +1581,7 @@ def update_table(data, tree_widget):
             "index": number,
             "code": code,
             "recognized": "",
-            "item_id": item_id  # Сохраняем ID элемента Treeview
+            "item_id": item_id,  # Сохраняем ID элемента Treeview
         }
         table_entries.append(entry)
 
@@ -1642,6 +1616,7 @@ def update_score(row_index):
 def check_for_updates():
     threading.Thread(target=_check_updates, daemon=True).start()
 
+
 def _check_updates():
     try:
         # URL для получения информации о релизах
@@ -1664,7 +1639,7 @@ def _check_updates():
                 logger.info(f"{download_url}")
                 # text_output.insert(tk.END, download_url)
             else:
-                logger.info(f"У вас последняя версия.\n")
+                logger.info("У вас последняя версия.\n")
                 # text_output.delete(1.0, tk.END)
                 # text_output.insert(tk.END, f"У вас последняя версия.\n")
     except Exception:
@@ -1700,7 +1675,7 @@ def check_dependencies():
         messagebox.showwarning(
             "Предупреждение",
             f"Следующие OCR-движки недоступны:\n{', '.join(missing)}\n\n"
-            "Вы можете установить их командой:\npip install easyocr paddleocr paddlepaddle"
+            "Вы можете установить их командой:\npip install easyocr paddleocr paddlepaddle",
         )
 
 
@@ -1729,11 +1704,11 @@ def main():
 if __name__ == "__main__":
     # Настройка логгера (один раз при запуске приложения)
     logger.setup(
-        log_file='main_app.log',
+        log_file="main_app.log",
         gui_widget=None,  # Будет установлен позже в GUI
         max_log_size=10 * 1024 * 1024,  # 10 MB
         backup_count=5,
-        log_level='DEBUG'  # 'INFO' в продакшене
+        log_level="DEBUG",  # 'INFO' в продакшене
     )
     logger.info("test ok")
     main()

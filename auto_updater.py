@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 import os
-import sys
-import requests
 import shutil
+import sys
 import tkinter as tk
-from tkinter import messagebox
 import webbrowser
+from tkinter import messagebox
+
+import requests
 
 
 class AutoUpdater:
     UPDATE_URL = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
     DOWNLOAD_URL = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/download/v{version}/main.exe"
     from version import __version__
+
     CURRENT_VERSION = __version__
     LOCAL_EXE = "main.exe"
     NEW_EXE = "main_new.exe"
@@ -32,7 +36,9 @@ class AutoUpdater:
 
     def get_latest_version(self):
         try:
-            response = requests.get("https://raw.githubusercontent.com/vanitoo/pythonProject-OpenCV-PDF/main/VERSION", timeout=5)
+            response = requests.get(
+                "https://raw.githubusercontent.com/vanitoo/pythonProject-OpenCV-PDF/main/VERSION", timeout=5
+            )
             if response.status_code == 200:
                 return response.text.strip()
         except Exception as e:
@@ -49,7 +55,7 @@ class AutoUpdater:
 
             with requests.get(url, stream=True, timeout=10) as r:
                 r.raise_for_status()
-                with open(dest_path, 'wb') as f:
+                with open(dest_path, "wb") as f:
                     shutil.copyfileobj(r.raw, f)
 
             messagebox.showinfo("Обновление", f"Обновление загружено как {self.NEW_EXE}. Перезапустить приложение?")
@@ -67,7 +73,7 @@ class AutoUpdater:
 
     def add_about_button(self, root):
         about_button = tk.Button(root, text="О программе", command=self.show_about_info)
-        about_button.pack(side=tk.TOP, anchor='ne', padx=10, pady=5)
+        about_button.pack(side=tk.TOP, anchor="ne", padx=10, pady=5)
 
     def show_about_info(self):
         top = tk.Toplevel(self.parent)
@@ -79,8 +85,10 @@ class AutoUpdater:
 
         link = tk.Label(top, text="Открыть GitHub релиз", fg="blue", cursor="hand2")
         link.pack()
-        link.bind("<Button-1>", lambda e: webbrowser.open_new_tab("https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases"))
-
+        link.bind(
+            "<Button-1>",
+            lambda e: webbrowser.open_new_tab("https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases"),
+        )
 
         result = messagebox.askyesno("Перезапуск", "Перезапустить приложение сейчас?")
         if result:
@@ -92,7 +100,9 @@ class AutoUpdater:
         new_path = os.path.join(os.path.dirname(sys.executable), AutoUpdater.NEW_EXE)
 
         if os.path.exists(new_path):
-            result = messagebox.askyesno("Обновление завершено", f"Найден {AutoUpdater.NEW_EXE}. Заменить текущий {AutoUpdater.LOCAL_EXE}?")
+            result = messagebox.askyesno(
+                "Обновление завершено", f"Найден {AutoUpdater.NEW_EXE}. Заменить текущий {AutoUpdater.LOCAL_EXE}?"
+            )
             if result:
                 try:
                     os.remove(old_path)
