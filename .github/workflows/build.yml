@@ -36,7 +36,8 @@ jobs:
 
     - name: Build .exe with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --clean --strip main.py
+        pyinstaller --onefile --windowed --clean --strip --debug=imports main.py
+
 
     - name: Upload .exe artifact
       uses: actions/upload-artifact@v4
