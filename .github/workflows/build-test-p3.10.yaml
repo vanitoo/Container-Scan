@@ -48,6 +48,8 @@ jobs:
           --runtime-tmpdir . ^
           --name "PDFContainerScanner" ^
           main.py
+      shell: pwsh -command ". '{0}'"
+
 
     # Проверка наличия DLL в собранном EXE
     - name: Verify build

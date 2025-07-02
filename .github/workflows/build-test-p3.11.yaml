@@ -95,20 +95,20 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     # 9. Уведомления
-    - name: Notify Slack
-      if: always()
-      uses: slackapi/slack-github-action@v1
-      with:
-        channel-id: 'builds'
-        status: ${{ job.status }}
-        message: |
-          *${{ env.APP_NAME }} Build ${{ job.status }}*
-          Version: ${{ steps.version.outputs.version }}
-          Python: ${{ env.PYTHON_VERSION }}
-          Triggered by: ${{ github.actor }}
-          Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      env:
-        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+#    - name: Notify Slack
+#      if: always()
+#      uses: slackapi/slack-github-action@v1
+#      with:
+#        channel-id: 'builds'
+#        status: ${{ job.status }}
+#        message: |
+#          *${{ env.APP_NAME }} Build ${{ job.status }}*
+#          Version: ${{ steps.version.outputs.version }}
+#          Python: ${{ env.PYTHON_VERSION }}
+#          Triggered by: ${{ github.actor }}
+#          Details: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+#      env:
+#        SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
 
 
 
