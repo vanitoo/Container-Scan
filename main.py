@@ -1,4 +1,5 @@
 from __future__ import annotations
+from version import __version__ as APP_VERSION
 
 import csv
 import os
@@ -6,6 +7,7 @@ import re
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from difflib import SequenceMatcher
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -62,12 +64,159 @@ recognition_results = []  # Будет хранить словари с резу
 last_click_time = 0
 DOUBLE_CLICK_DELAY = 300  # Задержка для двойного клика в миллисекундах
 
+# статус-бар: переменные
+status_page_var = None
+status_zoom_var = None
+status_size_var = None
+status_msg_var  = None
+
+
 # Настройка логирования
 # logging.basicConfig(
 #     filename="app.log",
 #     level=logging.DEBUG,
 #     format="%(asctime)s - %(levelname)s - %(message)s",
 # )
+
+def status_set(*, page=None, total=None, zoom=None, size=None, msg=None):
+    """Обновляет элементы статус-бара; передавай только то, что меняется."""
+    if page is not None and total is not None and status_page_var is not None:
+        status_page_var.set(f"Стр: {page}/{total}")
+    if zoom is not None and status_zoom_var is not None:
+        status_zoom_var.set(f"Масштаб: {zoom}")
+    if size is not None and status_size_var is not None:
+        status_size_var.set(f"Размер: {size}")
+    if msg is not None and status_msg_var is not None:
+        status_msg_var.set(msg)
+
+
+def apply_minimal_theme(root):
+    """Лёгкий, лаконичный стиль для Tkinter/ttk с авто-темой и аккуратным Treeview."""
+    import tkinter as tk
+    from tkinter import ttk
+
+    # 1) Попробуем современную тему sv_ttk (Sun Valley).
+    #    Если её нет — используем "clam" + минимальная ручная стилизация.
+    try:
+        import sv_ttk  # pip install sv-ttk
+        sv_ttk.set_theme("light")  # 'light' или 'dark'
+        use_sv = True
+    except Exception:
+        use_sv = False
+        style = ttk.Style(root)
+        style.theme_use("clam")
+
+        # Базовая палитра (сдержанная, светлая)
+        BG = "#F7F7F9"
+        FG = "#111827"
+        ACCENT = "#2563EB"   # синий для акцентов
+        MUTED = "#6B7280"
+        SEL_BG = "#DBEAFE"
+
+        # Глобальные виджеты
+        style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
+        style.configure("TFrame", background=BG)
+        style.configure("TLabel", background=BG, foreground=FG)
+        style.configure("TButton", padding=8, relief="flat")
+        style.map("TButton",
+                  background=[("active", "#E5E7EB")],
+                  relief=[("pressed", "sunken")])
+
+        # Toolbar (верхняя панель)
+        style.configure("Toolbar.TFrame", background=BG)
+        # Тонкий разделитель под тулбаром
+        style.configure("ToolSep.TFrame", background="#E5E7EB")
+
+        # Поля ввода
+        style.configure("TEntry", padding=6)
+        style.configure("TCombobox", padding=6)
+
+        # Таблица
+        style.configure("Treeview",
+                        borderwidth=0,
+                        rowheight=28,
+                        font=("Segoe UI", 10))
+        style.configure("Treeview.Heading",
+                        font=("Segoe UI Semibold", 10),
+                        foreground=MUTED)
+        style.map("Treeview",
+                  background=[("selected", SEL_BG)],
+                  foreground=[("selected", FG)])
+
+    # 2) Универсальные «хелперы» для зебры и тулбара
+    def style_treeview_stripes(tree):
+        # полосатые строки (зебра)
+        try:
+            tree.tag_configure("oddrow", background="#F3F4F6")
+            for i, iid in enumerate(tree.get_children("")):
+                if i % 2 == 1:
+                    tree.item(iid, tags=("oddrow",))
+        except Exception:
+            pass
+
+    def build_toolbar(parent, *widgets):
+        from tkinter import ttk
+        bar = ttk.Frame(parent, style="Toolbar.TFrame")
+        bar.pack(side="top", fill="x")
+        # Внутренние отступы для элементов
+        for w in widgets:
+            w.pack(in_=bar, side="left", padx=6, pady=8)
+        # Тонкий разделитель
+        sep = ttk.Frame(parent, style="ToolSep.TFrame", height=1)
+        sep.pack(side="top", fill="x")
+        return bar
+
+    # 3) Сохраним хелперы на root (удобно использовать в create_interface)
+    root._style_helpers = {
+        "style_treeview_stripes": style_treeview_stripes,
+        "build_toolbar": build_toolbar,
+        "sv_ttk": use_sv
+    }
+
+def toggle_theme():
+    """Переключатель темы: если есть sv_ttk — используем его; иначе ручной фоллбэк."""
+    from tkinter import ttk
+    helpers = getattr(root, "_style_helpers", {})
+    if helpers.get("sv_ttk"):
+        try:
+            import sv_ttk
+            sv_ttk.toggle_theme()
+            return
+        except Exception:
+            pass
+
+    # --- Фоллбэк для обычного ttk (clam) ---
+    style = ttk.Style(root)
+    current = getattr(root, "_theme_mode", "light")
+
+    if current == "light":
+        # тёмная
+        BG = "#111827"; FG = "#E5E7EB"; MUTED = "#9CA3AF"; SEL_BG = "#374151"
+        TB_BG = "#0F172A"; SEP = "#1F2937"
+        style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
+        style.configure("TFrame", background=BG)
+        style.configure("TLabel", background=BG, foreground=FG)
+        style.configure("TButton", padding=8)
+        style.configure("Toolbar.TFrame", background=TB_BG)
+        style.configure("ToolSep.TFrame", background=SEP)
+        style.configure("Treeview", background=BG, fieldbackground=BG, foreground=FG, rowheight=28)
+        style.configure("Treeview.Heading", foreground=MUTED)
+        style.map("Treeview", background=[("selected", SEL_BG)], foreground=[("selected", FG)])
+        root._theme_mode = "dark"
+    else:
+        # светлая
+        BG = "#F7F7F9"; FG = "#111827"; MUTED = "#6B7280"; SEL_BG = "#DBEAFE"
+        TB_BG = BG; SEP = "#E5E7EB"
+        style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
+        style.configure("TFrame", background=BG)
+        style.configure("TLabel", background=BG, foreground=FG)
+        style.configure("TButton", padding=8)
+        style.configure("Toolbar.TFrame", background=TB_BG)
+        style.configure("ToolSep.TFrame", background=SEP)
+        style.configure("Treeview", background=BG, fieldbackground=BG, foreground=FG, rowheight=28)
+        style.configure("Treeview.Heading", foreground=MUTED)
+        style.map("Treeview", background=[("selected", SEL_BG)], foreground=[("selected", FG)])
+        root._theme_mode = "light"
 
 
 def is_similar_ratio(a, b):
@@ -136,6 +285,7 @@ def safe_execute(func):
 
 
 def set_tesseract_path():
+    global text_output
     # Список возможных путей установки Tesseract
     possible_paths = [
         Path("C:/Program Files/Tesseract-OCR/tesseract.exe"),
@@ -150,29 +300,18 @@ def set_tesseract_path():
     for path in possible_paths:
         if path.exists():
             pytesseract.pytesseract.tesseract_cmd = str(path)
-            logger.info(f"Путь для Tesseract установлен: {path}")
+            logger.debug(f"Путь для Tesseract установлен: {path}")
             return
 
     # Если ни один путь не найден
     logger.info("Tesseract не найден. Пожалуйста, установите его по ссылке:")
-    logger.info("https://github.com/UB-Mannheim/tesseract/wiki")
+    logger.info("Ссылка на проект: https://github.com/UB-Mannheim/tesseract/wiki")
+    logger.info("Дистрибутив https://github.com/UB-Mannheim/tesseract/releases")
+    insert_link(text_output, "Ссылка на проект:", "https://github.com/UB-Mannheim/tesseract/wiki")
+    insert_link(text_output, "Дистрибутив:", "https://github.com/UB-Mannheim/tesseract/releases")
 
 
 # Функция для создания выходной папки
-def create_output_directory2(input_file_path):
-    try:
-        base_name = Path(input_file_path).stem
-        output_dir = Path(f"{base_name}_out")
-
-        if not output_dir.exists():
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-        return str(output_dir)  # Возвращаем строку для совместимости
-
-    except Exception as e:
-        messagebox.showerror("Ошибка", f"Не удалось создать выходную папку: {e}")
-        return None
-
 def create_output_directory(input_file_path):
     try:
         base_name = Path(input_file_path).stem
@@ -436,13 +575,17 @@ def build_table_from_pdf(pdf_doc):
             tk.END,
             values=(
                 i + 1,  # № страницы
-                "",  # Контейнер из XLS (пока пусто)
-                "",  # Распознанный контейнер
-                "",  # Совпадение
-                "",  # Коэффициент
+                "",     # Контейнер из XLS (пока пусто)
+                "",     # Распознанный контейнер
+                "",     # Совпадение
+                "",     # Коэффициент
             ),
         )
-        table_entries.append({"index": i + 1, "item_id": item_id, "code": "", "recognized": ""})
+        # ДОБАВИЛИ xls_id
+        table_entries.append({
+            "index": i + 1, "item_id": item_id,
+            "code": "", "recognized": "", "xls_id": ""
+        })
 
 
 def update_table_from_entries(table_frame_ref):
@@ -533,29 +676,65 @@ def save_results(btn):
 
 
 def _save_results_worker(btn):
-    """Функция-рабочий для сохранения результатов"""
+    """Функция-рабочий для сохранения результатов (UI через root.after)."""
     global pdf_doc, table_entries, debug_mode, recognition_results
 
+    # Все диалоги/окна — только через root.after
     if not pdf_doc:
-        messagebox.showerror("Ошибка", "PDF документ не загружен")
+        root.after(0, lambda: messagebox.showerror("Ошибка", "PDF документ не загружен"))
+        root.after(0, lambda: btn.config(state=tk.NORMAL))
         return
 
     if not table_entries:
-        messagebox.showerror("Ошибка", "Нет данных для сохранения")
+        root.after(0, lambda: messagebox.showerror("Ошибка", "Нет данных для сохранения"))
+        root.after(0, lambda: btn.config(state=tk.NORMAL))
         return
 
-    try:
-        # Создаем прогресс-бар
+    ui = {"win": None, "bar": None}
+
+    def _open_progress():
         progress = tk.Toplevel(root)
         progress.title("Сохранение...")
-        progress.geometry("300x100")
+        w, h = 300, 100
+        root.update_idletasks()
+        x = root.winfo_x() + (root.winfo_width() - w) // 2
+        y = root.winfo_y() + (root.winfo_height() - h) // 2
+        progress.geometry(f"{w}x{h}+{x}+{y}")
+        progress.transient(root)
+        progress.resizable(False, False)
         tk.Label(progress, text="Идет сохранение результатов").pack(pady=10)
-        progress_bar = ttk.Progressbar(progress, mode="indeterminate")
-        progress_bar.pack(fill="x", padx=20, pady=5)
-        progress_bar.start()
+        bar = ttk.Progressbar(progress, mode="indeterminate")
+        bar.pack(fill="x", padx=20, pady=5)
+        bar.start()
+        ui["win"] = progress
+        ui["bar"] = bar
 
-        # Выполняем сохранение в потоке
-        output_dir = create_output_directory(pdf_path)
+    def _close_progress_ok(output_dir):
+        if ui.get("bar"):
+            try: ui["bar"].stop()
+            except Exception: pass
+        if ui.get("win"):
+            try: ui["win"].destroy()
+            except Exception: pass
+        messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+        btn.config(state=tk.NORMAL)
+
+    def _close_progress_err(msg):
+        if ui.get("bar"):
+            try: ui["bar"].stop()
+            except Exception: pass
+        if ui.get("win"):
+            try: ui["win"].destroy()
+            except Exception: pass
+        messagebox.showerror("Ошибка", msg)
+        btn.config(state=tk.NORMAL)
+
+    # открыть окно прогресса в главном потоке
+    root.after(0, _open_progress)
+
+    try:
+        # куда сохраняем: рядом с исходным PDF (оставляю твою схему)
+        output_dir = Path(entry_pdf_path.get()).parent
 
         for i, entry in enumerate(table_entries):
             page_num = entry["index"] - 1
@@ -563,49 +742,50 @@ def _save_results_worker(btn):
             pix = page.get_pixmap(dpi=200)
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-            recognized = entry.get("recognized", "")
-            match = tree.item(entry["item_id"], "values")[3]  # Значение из столбца "Совпадение"
+            recognized = (entry.get("recognized") or "").strip()
+            match = (tree.item(entry["item_id"], "values")[3] or "").strip()  # "Совпадение"
             filename = match if match else recognized if recognized else f"page_{i + 1}"
 
-            # base_path = os.path.join(output_dir, f"{i + 1}_{filename}")
+            # префикс из колонки 3 Excel:
+            prefix = (entry.get("xls_id") or "").strip()
+            if prefix:
+                filename = f"{prefix}_{filename}"
 
-            # output_dir = os.path.dirname(entry_pdf_path.get())
-            output_dir = Path(entry_pdf_path.get()).parent
-            # output_file = os.path.join(output_dir, f"{i + 1}_{filename}_full")
-            # output_file = os.path.join(output_dir, f"{filename}")
             output_file = Path(output_dir) / filename
             page_image.save(f"{output_file}.jpg")
 
-            if debug_mode.get() and hasattr(canvas2, "image") and canvas2.image:
-                cropped_image.save(f"{output_file}_cropped.jpg")
-            # if debug_mode.get():
-            #     if hasattr(canvas2, "image") and canvas2.image:
-                cropped_image.save(f"{output_file}_cropped.jpg")
+            if debug_mode.get():
+                # сохранить кроп, если действительно есть
+                if 'cropped_image' in globals() and cropped_image is not None:
+                    try:
+                        cropped_image.save(f"{output_file}_cropped.jpg")
+                    except Exception as e_crop:
+                        logger.error(f"Не удалось сохранить вырезку: {e_crop}", exc_info=True)
 
+                # сохранить _info.txt, если есть результат распознавания
                 if i < len(recognition_results):
-                    result = recognition_results[i]
-                    info_file = Path(f"{output_file}_info.txt")
-                    with info_file.open("w", encoding="utf-8") as f:
-                        f.write(f"Страница: {result['page']}\n")
-                        f.write(f"Координаты: {result['coords']}\n")
-                        f.write(f"Движок OCR: {result['engine']}\n")
-                        f.write("\n--- Исходный текст ---\n")
-                        f.write(result["raw_text"])
-                        f.write("\n\n--- Форматированный текст ---\n")
-                        f.write(result["formatted_text"])
+                    try:
+                        result = recognition_results[i]
+                        info_file = Path(f"{output_file}_info.txt")
+                        with info_file.open("w", encoding="utf-8") as f:
+                            f.write(f"Страница: {result.get('page')}\n")
+                            f.write(f"Координаты: {result.get('coords')}\n")
+                            f.write(f"Движок OCR: {result.get('engine')}\n")
+                            f.write("\n--- Исходный текст ---\n")
+                            f.write(result.get("raw_text", ""))
+                            f.write("\n\n--- Форматированный текст ---\n")
+                            f.write(result.get("formatted_text", ""))
+                    except Exception as e_info:
+                        logger.error(f"Не удалось сохранить _info.txt: {e_info}", exc_info=True)
 
-        # Закрываем прогресс-бар и показываем сообщение
-        progress.destroy()
-        messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+        # закрыть прогресс и показать успех — в главном потоке
+        root.after(0, lambda d=output_dir: _close_progress_ok(d))
 
     except Exception as e:
-        progress.destroy()
-        messagebox.showerror("Ошибка", f"Ошибка при сохранении: {e!s}")
         logger.error(f"Ошибка сохранения: {e}", exc_info=True)
-    finally:
-        if "progress" in locals():
-            progress.destroy()
-        btn.after(0, lambda: btn.config(state=tk.NORMAL))
+        # закрыть прогресс и показать ошибку — в главном потоке
+        root.after(0, lambda: _close_progress_err(f"Ошибка при сохранении: {e!s}"))
+
 
 
 def run_ocr_in_thread(image, **kwargs):
@@ -885,7 +1065,7 @@ def prev_page():
 def set_default_coordinates(coordinates_entry):
     coordinates_text = (f"{DEFAULT_COORDINATES2['X_START']},{DEFAULT_COORDINATES2['Y_START']},"
                         f"{DEFAULT_COORDINATES2['X_END']},{DEFAULT_COORDINATES2['Y_END']}")
-    coordinates_entry.delete(0, tk.END)
+    # coordinates_entry.delete(0, tk.END)
     coordinates_entry.insert(0, coordinates_text)
 
 # Функция для проверки формата координат
@@ -931,6 +1111,7 @@ def zoom_canvas(event):
     canvas.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
 
 
+
 def zoom_canvas2(event):
     global canvas2_scale, cropped_image
 
@@ -969,6 +1150,11 @@ def zoom_canvas2(event):
     canvas2.xview_moveto((mouse_x * zoom_factor - event.x) / new_width)
     canvas2.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
 
+    # где у тебя есть текущее значение масштаба, например scale или canvas_scale:
+    try:
+        status_set(zoom=f"{int(canvas_scale * 100)}%")
+    except Exception:
+        pass
 
 def update_coordinates(event):
     global x_start, y_start, x_end, y_end, coordinates_entry
@@ -1023,12 +1209,19 @@ def read_env():
     except Exception as e:
         logger.info(f"[ERROR] Ошибка при загрузке координат из .env: {e}")
         # Устанавливаем значения по умолчанию
+        # x_start, y_start, x_end, y_end = (
+        #     DEFAULT_COORDINATES2["x_start"],
+        #     DEFAULT_COORDINATES2["y_start"],
+        #     DEFAULT_COORDINATES2["x_end"],
+        #     DEFAULT_COORDINATES2["y_end"],
+        # )
         x_start, y_start, x_end, y_end = (
-            DEFAULT_COORDINATES2["x_start"],
-            DEFAULT_COORDINATES2["y_start"],
-            DEFAULT_COORDINATES2["x_end"],
-            DEFAULT_COORDINATES2["y_end"],
+            DEFAULT_COORDINATES2["X_START"],
+            DEFAULT_COORDINATES2["Y_START"],
+            DEFAULT_COORDINATES2["X_END"],
+            DEFAULT_COORDINATES2["Y_END"],
         )
+
         selected_areas = [(None, x_start, y_start, x_end, y_end)]
 
 
@@ -1038,6 +1231,7 @@ def on_closing():
     if root is not None:  # Проверяем, что окно еще существует
         save_env(x_start, y_start, x_end, y_end, regex_pattern)
         root.destroy()  # Закрыть главное окно
+
 
 
 class TextRedirector:
@@ -1071,18 +1265,19 @@ def save_current_page():
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
             # Берем имя из распознанного или совпадения
-            recognized = table_entries[current_page].get("recognized", "")
-            match = tree.item(table_entries[current_page]["item_id"], "values")[3]
+            recognized = (table_entries[current_page].get("recognized") or "").strip()
+            match = (tree.item(table_entries[current_page]["item_id"], "values")[3] or "").strip()
             filename = match or recognized or f"page_{current_page + 1}"
 
-            # output_dir = os.path.dirname(entry_pdf_path.get())
+            # ← ДОБАВИЛИ префикс из колонки 3 Excel:
+            prefix = (table_entries[current_page].get("xls_id") or "").strip()
+            if prefix:
+                filename = f"{prefix}_{filename}"
+
             output_dir = Path(entry_pdf_path.get()).parent
-            # output_file = os.path.join(output_dir, f"{current_page + 1}_{filename}")
             output_file = Path(output_dir) / f"{current_page + 1}_{filename}"
             page_image.save(f"{output_file}_full.jpg")
 
-            # if debug_mode.get():
-            #     if hasattr(canvas2, "image") and canvas2.image:
             if debug_mode.get() and hasattr(canvas2, "image") and canvas2.image:
                 cropped_image.save(f"{output_file}_cropped.jpg")
 
@@ -1102,6 +1297,15 @@ def toggle_extra_options():
         if frame_extra.winfo_ismapped():
             frame_extra.pack_forget()
 
+def on_link_click(event, url):
+    webbrowser.open(url)  # Открывает ссылку в браузере
+
+def insert_link(text_widget, text, url):
+    text_widget.insert(tk.INSERT, text, "hyperlink")
+    text_widget.tag_bind("hyperlink", "<Button-1>", lambda e: on_link_click(e, url))  # Привязка клика
+    text_widget.insert(tk.INSERT, "\n")  # Переход на новую строку
+
+
 
 def create_interface():
     global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
@@ -1113,6 +1317,8 @@ def create_interface():
     global frame_main, frame_canvases
 
     root = tk.Tk()
+    apply_minimal_theme(root)
+
     extra_mode = tk.BooleanVar(value=False)
     root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
     root.protocol("WM_DELETE_WINDOW", on_closing)
@@ -1126,7 +1332,8 @@ def create_interface():
     root.geometry(f"{window_width}x{window_height}+{x}+{y}")
 
     frame_top = tk.Frame(root)
-    frame_top.pack(fill="x", expand=True)
+    # frame_top.pack(fill="x", expand=True)
+    frame_top.pack(side=tk.TOP, fill="x", expand=False, anchor="n")
     frame_top.columnconfigure(2, weight=1)
 
     frame_extra = tk.Frame(root)
@@ -1175,13 +1382,17 @@ def create_interface():
     frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
 
     recognition_mode = tk.IntVar(value=0)
-    adv_checkbutton = tk.Checkbutton(frame_left_extra, text="Расш. режим", variable=recognition_mode)
+    adv_checkbutton = tk.Checkbutton(frame_left_extra, text="Advance", variable=recognition_mode)
 
     debug_mode = tk.BooleanVar(value=False)
     debug_checkbutton = tk.Checkbutton(frame_left_extra, text="Debug", variable=debug_mode, command=update_debug_mode)
 
     adv_checkbutton.pack(side=tk.LEFT, padx=2)
     debug_checkbutton.pack(side=tk.LEFT, padx=2)
+
+    # btn_theme = ttk.Button(frame_left_extra, text="Тема", command=toggle_theme)
+    # btn_theme.grid(row=0, column=6, padx=6, pady=8, sticky="e")
+
 
     separator2 = ttk.Separator(frame_extra, orient="vertical")
     separator2.pack(side=tk.LEFT, fill="y", padx=5)
@@ -1193,11 +1404,11 @@ def create_interface():
 
     lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
     ocr_engine_var = tk.StringVar(value="Tesseract")
-    ocr_options = ["Tesseract"]
-    if EASYOCR_AVAILABLE:
-        ocr_options.append("EasyOCR")
-    if PADDLEOCR_AVAILABLE:
-        ocr_options.append("PaddleOCR")
+    ocr_options = ["Tesseract","EasyOCR","PaddleOCR"]
+    # if EASYOCR_AVAILABLE:
+    #     ocr_options.append("EasyOCR")
+    # if PADDLEOCR_AVAILABLE:
+    #     ocr_options.append("PaddleOCR")
     ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
     btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
 
@@ -1254,8 +1465,8 @@ def create_interface():
     tree["columns"] = ("number", "expected", "recognized", "match", "score")
     tree.column("#0", width=0, stretch=tk.NO)  # Скрытая колонка
     tree.column("number", width=50, anchor=tk.CENTER)
-    # tree.column("expected", width=150, anchor=tk.W)
-    tree.column("expected", width=0, stretch=tk.NO)
+    tree.column("expected", width=150, anchor=tk.W)
+    # tree.column("expected", width=0, stretch=tk.NO)
     tree.column("recognized", width=150, anchor=tk.W)
     tree.column("match", width=150, anchor=tk.W)
     tree.column("score", width=50, anchor=tk.CENTER)
@@ -1269,6 +1480,7 @@ def create_interface():
 
     # Привязка события двойного клика для перехода к странице
     tree.bind("<Button-1>", on_tree_click)
+    tree.bind("<Return>", on_tree_enter)
 
     # Настройка обработчиков событий для холстов
     canvas.bind("<Button-1>", define_coordinates)
@@ -1283,10 +1495,221 @@ def create_interface():
     text_output.config(state="normal")
     sys.stdout = TextRedirector(text_output)
 
+    # Добавляем гиперссылки
+    text_output.tag_configure("hyperlink", foreground="blue", underline=True)
+
     set_default_coordinates(coordinates_entry)
 
     toggle_extra_options()
     logger.update_gui_handler(text_output)
+
+def create_interface3():
+    global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
+    global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
+    global ocr_engine_var, table_frame, tree
+    global selected_areas
+    global debug_mode
+    global extra_mode, frame_extra
+    global frame_main, frame_canvases
+
+    # --- окно + тема ---
+    root = tk.Tk()
+    apply_minimal_theme(root)
+
+    extra_mode = tk.BooleanVar(value=False)
+    root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+
+    # Центр окна
+    window_width, window_height = 1400, 800
+    root.update_idletasks()
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    x = (sw - window_width) // 2
+    y = (sh - window_height) // 2
+    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+    # --- Верхняя панель (прилипает к верху) ---
+    frame_top = ttk.Frame(root, style="Toolbar.TFrame")
+    frame_top.pack(side=tk.TOP, fill="x")
+    frame_top.grid_columnconfigure(2, weight=1)
+
+    btn_select_pdf    = ttk.Button(frame_top, text="Выбрать PDF",         command=select_pdf)
+    btn_load_registry = ttk.Button(frame_top, text="Выбрать XLS",         command=load_registry)
+    entry_pdf_path    = ttk.Entry(frame_top)
+    btn_recognize     = ttk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread)
+    btn_match         = ttk.Button(frame_top, text="Сопоставить",         command=match_with_expected)
+    btn_save          = ttk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save))
+
+    btn_select_pdf.grid(   row=0, column=0, padx=6, pady=8, sticky="w")
+    btn_load_registry.grid(row=0, column=1, padx=6, pady=8, sticky="w")
+    entry_pdf_path.grid(   row=0, column=2, padx=6, pady=8, sticky="we")
+    btn_recognize.grid(   row=0, column=3, padx=6, pady=8, sticky="e")
+    btn_match.grid(       row=0, column=4, padx=6, pady=8, sticky="e")
+    btn_save.grid(        row=0, column=5, padx=6, pady=8, sticky="e")
+
+    ttk.Separator(root, orient="horizontal").pack(side=tk.TOP, fill="x")
+
+    # --- Основная панель навигации ---
+    frame_main = ttk.Frame(root)
+    frame_main.pack(pady=6, padx=10, fill="x")
+
+    frame_left = ttk.Frame(frame_main)
+    frame_left.pack(side=tk.LEFT, fill="x", expand=False)
+
+    button_width = 16
+    btn_prev      = ttk.Button(frame_left, text="← Назад",        command=prev_page,         width=button_width)
+    btn_next      = ttk.Button(frame_left, text="Вперед →",       command=next_page,         width=button_width)
+    btn_check     = ttk.Button(frame_left, text="Проверить лист", command=check_image,       width=button_width)
+    btn_save_page = ttk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
+
+    btn_prev.pack(side=tk.LEFT, padx=4, pady=2)
+    btn_next.pack(side=tk.LEFT, padx=4, pady=2)
+    btn_check.pack(side=tk.LEFT, padx=4, pady=2)
+    btn_save_page.pack(side=tk.LEFT, padx=4, pady=2)
+
+    # ← ВЕРНУЛИ кнопку Options (переключает панель frame_extra)
+    ttk.Separator(frame_main, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+    options_btn = ttk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
+    options_btn.pack(side=tk.LEFT, padx=6)
+
+    # --- Панель дополнительных опций (скрываемая) ---
+    frame_extra = ttk.Frame(root)
+    if extra_mode.get():
+        frame_extra.pack(pady=4, padx=10, fill="x")
+
+    # ВНИМАНИЕ: frame_left_extra снова ВНУТРИ frame_extra (как у тебя было)
+    frame_left_extra = ttk.Frame(frame_extra)
+    frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
+
+    recognition_mode = tk.IntVar(value=0)
+    debug_mode = tk.BooleanVar(value=False)
+
+    adv_checkbutton   = ttk.Checkbutton(frame_left_extra, text="Advance", variable=recognition_mode)
+    debug_checkbutton = ttk.Checkbutton(frame_left_extra, text="Debug",   variable=debug_mode, command=update_debug_mode)
+    adv_checkbutton.pack(side=tk.LEFT, padx=4)
+    debug_checkbutton.pack(side=tk.LEFT, padx=4)
+    btn_theme = ttk.Button(frame_left_extra, text="Тема", command=toggle_theme)
+    btn_theme.pack(side=tk.LEFT, padx=6)
+
+
+    ttk.Separator(frame_extra, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+
+    # Центр блока доп. опций: OCR инициализация
+    frame_center = ttk.Frame(frame_extra)
+    frame_center.pack(side=tk.LEFT, fill="x", expand=True)
+
+    ocr_container = ttk.Frame(frame_center)
+    ocr_container.pack(fill="x", expand=True)
+
+    ttk.Label(ocr_container, text="OCR движок:").pack(side=tk.LEFT, padx=4)
+    ocr_engine_var = tk.StringVar(value="Tesseract")
+    ocr_options = ["Tesseract", "EasyOCR", "PaddleOCR"]
+    ocr_menu = ttk.Combobox(ocr_container, textvariable=ocr_engine_var, values=ocr_options, state="readonly", width=16)
+    ocr_menu.pack(side=tk.LEFT, padx=4)
+    ttk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine).pack(side=tk.LEFT, padx=4)
+
+    ttk.Separator(frame_extra, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+
+    # Правый блок: regex и координаты
+    frame_right = ttk.Frame(frame_extra)
+    frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
+
+    ttk.Label(frame_right, text="Шаблон:").pack(side=tk.LEFT, padx=4)
+    regex_pattern_entry = ttk.Entry(frame_right, width=28)
+    regex_pattern_entry.pack(side=tk.LEFT, padx=4)
+
+    coordinates_entry = ttk.Entry(frame_right, width=22)
+    coordinates_entry.pack(side=tk.LEFT, padx=4)
+
+    regex_pattern_entry.insert(0, regex_pattern)
+    coordinates_entry.bind("<KeyRelease>", update_coordinates)
+
+    # --- Центральная область: 2 Canvas + таблица ---
+    frame_canvases = ttk.Frame(root)
+    frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
+
+    canvas_width = 750 // 2
+    canvas_height = 500
+
+    canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="#F3F4F6", highlightthickness=0)
+    canvas.pack(side=tk.LEFT, anchor=tk.N, padx=6, pady=10)
+
+    canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="#F3F4F6", highlightthickness=0)
+    canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=6, pady=10)
+
+    ttk.Separator(frame_canvases, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+
+    table_frame = ttk.Frame(frame_canvases)
+    table_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    tree_scroll = ttk.Scrollbar(table_frame, orient="vertical")
+    tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
+    tree.pack(fill=tk.BOTH, expand=True)
+    tree_scroll.config(command=tree.yview)
+
+    tree["columns"] = ("number", "expected", "recognized", "match", "score")
+    tree.column("#0", width=0, stretch=tk.NO)
+    tree.column("number",     width=60,  anchor=tk.CENTER)
+    tree.column("expected",   width=170, anchor=tk.W)
+    tree.column("recognized", width=170, anchor=tk.W)
+    tree.column("match",      width=170, anchor=tk.W)
+    tree.column("score",      width=80,  anchor=tk.CENTER)
+
+    tree.heading("number", text="№")
+    tree.heading("expected", text="Контейнер из XLS")
+    tree.heading("recognized", text="Контейнер распознанный")
+    tree.heading("match", text="Совпадение")
+    tree.heading("score", text="Коэффициент")
+
+    # «Зебра» для строк (после заполнения можно вызвать ещё раз)
+    try:
+        root._style_helpers["style_treeview_stripes"](tree)
+    except Exception:
+        pass
+
+    # Бинды
+    tree.bind("<Button-1>", on_tree_click)
+    tree.bind("<Return>", on_tree_enter)
+
+    canvas.bind("<Button-1>", define_coordinates)
+    canvas.bind("<B1-Motion>", draw_rectangle)
+    canvas.bind("<ButtonRelease-1>", finish_coordinates)
+    canvas.bind("<MouseWheel>", zoom_canvas)
+    canvas2.bind("<MouseWheel>", zoom_canvas2)
+
+    # --- Лог-панель ---
+    text_output = scrolledtext.ScrolledText(root, height=8)
+    text_output.pack(side=tk.BOTTOM, fill="x", pady=8, padx=10)
+    text_output.config(state="normal")
+    sys.stdout = TextRedirector(text_output)
+    text_output.tag_configure("hyperlink", foreground="blue", underline=True)
+
+    # Значения по умолчанию и логгер
+    set_default_coordinates(coordinates_entry)
+    toggle_extra_options()   # учитывает текущее extra_mode и (un)pack'ает frame_extra
+    logger.update_gui_handler(text_output)
+
+    # --- Статус-бар снизу ---
+    global status_page_var, status_zoom_var, status_size_var, status_msg_var
+    status_page_var = tk.StringVar(value="Стр: —/—")
+    status_zoom_var = tk.StringVar(value="Масштаб: 100%")
+    status_size_var = tk.StringVar(value="Размер: —×—")
+    status_msg_var = tk.StringVar(value="Готово")
+
+    statusbar = ttk.Frame(root, style="Toolbar.TFrame")
+    # Порядок важен: этот pack ставим ПОСЛЕДНИМ, чтобы статус-бар был внизу
+    statusbar.pack(side=tk.BOTTOM, fill="x")
+
+    ttk.Label(statusbar, textvariable=status_page_var).pack(side=tk.LEFT, padx=8, pady=4)
+    ttk.Label(statusbar, text="|").pack(side=tk.LEFT, padx=6)
+    ttk.Label(statusbar, textvariable=status_zoom_var).pack(side=tk.LEFT, padx=8)
+    ttk.Label(statusbar, text="|").pack(side=tk.LEFT, padx=6)
+    ttk.Label(statusbar, textvariable=status_size_var).pack(side=tk.LEFT, padx=8)
+
+    # Сообщения статуса — справа
+    ttk.Label(statusbar, textvariable=status_msg_var).pack(side=tk.RIGHT, padx=8)
 
 
 def update_debug_mode():
@@ -1319,6 +1742,23 @@ def on_tree_click(event):
         edit_cell(item, column)
 
 
+def on_tree_enter(event):
+    item = tree.focus() or (tree.selection()[0] if tree.selection() else None)
+    if not item:
+        children = tree.get_children()
+        if not children:
+            return "break"
+        item = children[0]
+        tree.selection_set(item)
+        tree.focus(item)
+
+    tree.see(item)
+    goto_page(item)           # как при клике
+    edit_cell(item, "#4")     # открыть редактор "Совпадение"
+    return "break"
+
+
+
 def goto_page(item):
     """Переход к указанной странице"""
     global current_page
@@ -1329,6 +1769,13 @@ def goto_page(item):
             load_page()
         except ValueError:
             pass
+    # после смены current_page и отрисовки страницы:
+    try:
+        total = pdf_doc.page_count
+        status_set(page=current_page + 1, total=total, msg="Готово")
+    except Exception:
+        pass
+
 
 
 def edit_cell(item, column):
@@ -1376,13 +1823,23 @@ def edit_cell(item, column):
 
     def on_key_release(event):
         if not first_input["done"]:
-            char = event.char.upper()  # сохраняем первый введённый символ (в верхнем регистре)
-            entry_edit.delete(0, tk.END)
-            entry_edit.insert(0, char)
-            entry_edit.icursor(1)
-            first_input["done"] = True
-            update_listbox()
+            if event.char and len(event.char) == 1:
+                char = event.char.upper()
+                entry_edit.delete(0, tk.END)
+                entry_edit.insert(0, char)
+                entry_edit.icursor(1)
+                first_input["done"] = True
+                update_listbox()
             return
+
+        # if not first_input["done"]:
+        #     char = event.char.upper()  # сохраняем первый введённый символ (в верхнем регистре)
+        #     entry_edit.delete(0, tk.END)
+        #     entry_edit.insert(0, char)
+        #     entry_edit.icursor(1)
+        #     first_input["done"] = True
+        #     update_listbox()
+        #     return
 
         if event.keysym in ("Up", "Down", "Return"):
             return
@@ -1396,7 +1853,7 @@ def edit_cell(item, column):
 
         update_listbox()
 
-    def on_entry_key(event):
+    def on_entry_key2(event):
         if event.keysym == "Down" and listbox.size() > 0:
             listbox.focus_set()
             listbox.selection_clear(0, tk.END)
@@ -1418,9 +1875,89 @@ def edit_cell(item, column):
         save_edit()
         return "break"
 
-    def on_listbox_key(event):
+    def on_entry_key3(event):
+        # Стрелка вниз: перейти в список подсказок
+        if event.keysym == "Down" and listbox.size() > 0:
+            listbox.focus_set()
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(0)
+            listbox.activate(0)
+            return "break"
+
+        # Enter: принять единственную подсказку (если она одна) и сохранить
+        if event.keysym == "Return":
+            if listbox.winfo_ismapped() and listbox.size() == 1:
+                selected = listbox.get(0)
+                entry_edit.delete(0, tk.END)
+                entry_edit.insert(0, selected)
+                listbox.place_forget()
+                entry_edit.focus_set()
+            save_edit()  # ← сохраняем ТОЛЬКО на Enter
+            return "break"
+
+        # Esc: закрыть без сохранения (по желанию можно вернуть старое значение)
+        if event.keysym == "Escape":
+            listbox.place_forget()
+            entry_edit.destroy()
+            return "break"
+
+        # Для других клавиш — ничего не делаем здесь.
+        # Верхний регистр и фильтрацию ведём в on_key_release.
+        return None
+
+    def on_entry_key(event):
+        # Стрелка вниз — уходим в список подсказок
+        if event.keysym == "Down" and listbox.size() > 0:
+            listbox.focus_set()
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(0)
+            listbox.activate(0)
+            return "break"
+
+        # Enter — сохранить и вернуть фокус в таблицу
+        if event.keysym == "Return":
+            if listbox.winfo_ismapped() and listbox.size() == 1:
+                # автоподстановка единственного варианта
+                selected = listbox.get(0)
+                entry_edit.delete(0, tk.END)
+                entry_edit.insert(0, selected)
+                listbox.place_forget()
+                entry_edit.focus_set()
+
+            save_edit()
+            # фокус и выделение строки в Treeview
+            tree.focus(item)
+            tree.selection_set(item)
+            tree.see(item)
+            tree.focus_set()
+            return "break"
+
+        # Esc — закрыть редактор без сохранения (и вернуть фокус в таблицу)
+        if event.keysym == "Escape":
+            listbox.place_forget()
+            entry_edit.destroy()
+            tree.focus_set()
+            return "break"
+
+        return None
+
+    def on_listbox_key2(event):
         if event.keysym == "Return":
             on_listbox_select(None)
+            return "break"
+        elif event.keysym == "Escape":
+            listbox.place_forget()
+            entry_edit.focus_set()
+            return "break"
+
+    def on_listbox_key(event):
+        if event.keysym == "Return":
+            on_listbox_select(None)  # подставить выбранный вариант
+            save_edit()
+            tree.focus(item)
+            tree.selection_set(item)
+            tree.see(item)
+            tree.focus_set()
             return "break"
         elif event.keysym == "Escape":
             listbox.place_forget()
@@ -1459,19 +1996,16 @@ def edit_cell(item, column):
         if widget != listbox:
             save_edit()
 
+
     # Привязки
     entry_edit.bind("<KeyRelease>", on_key_release)
     entry_edit.bind("<FocusOut>", on_entry_focus_out)
-
-    # entry_edit.bind("<FocusOut>", save_edit)
-    # entry_edit.bind("<Return>", save_edit)
     entry_edit.bind("<KeyPress>", on_entry_key)
     listbox.bind("<<ListboxSelect>>", on_listbox_select)
     listbox.bind("<Return>", on_listbox_key)
     listbox.bind("<Escape>", on_listbox_key)
     listbox.bind("<Double-Button-1>", on_listbox_select)
     listbox.bind("<FocusOut>", lambda e: listbox.place_forget())
-
     update_listbox()  # показать при открытии
 
 
@@ -1487,11 +2021,6 @@ def update_row_color(item, score):
         tree.tag_configure("none", background="#ffaaaa")
         tree.item(item, tags=("none",))
 
-
-# def update_scroll_region(event=None):
-#     table_canvas.configure(scrollregion=table_canvas.bbox("all"))
-
-
 def load_registry():
     global table_entries, tree
 
@@ -1499,34 +2028,59 @@ def load_registry():
     if not file_path:
         return
 
-    container_data = []
+    records = []  # список кортежей (xls_id, container)
 
     try:
-        if Path(file_path).suffix == ".xlsx":
+        suffix = Path(file_path).suffix.lower()
+
+        if suffix == ".xlsx":
             wb = openpyxl.load_workbook(file_path, data_only=True)
             sheet = wb.active
+            logger.info(f"Чтение данных из Excel файла: {file_path}")
             for row in sheet.iter_rows(min_row=5):
-                cell = row[3].value
-                if cell and isinstance(cell, str) and "/" in cell:
-                    container_number = cell.split("/")[-1].strip()
-                    container_data.append(container_number)
+                # кол.3 → номер (xls_id), кол.4 → контейнер
+                xls_id = ""
+                container = ""
+                if len(row) > 2 and row[2].value is not None:
+                    xls_id = str(row[2].value).strip()
+                if len(row) > 3:
+                    cell = row[3].value
+                    if cell is not None:
+                        s = str(cell)
+                        container = s.split("/")[-1].strip() if "/" in s else s.strip()
+                records.append((xls_id, container))
 
-        elif Path(file_path).suffix == ".csv":
+        elif suffix == ".csv":
             with Path(file_path).open(encoding="utf-8") as f:
                 reader = csv.reader(f)
                 for idx, row in enumerate(reader):
-                    if idx < 3:
+                    if idx < 3:   # как и раньше — пропуск первых строк
                         continue
-                    if len(row) >= 4 and "/" in row[3]:
-                        container_number = row[3].split("/")[-1].strip()
-                        container_data.append(container_number)
-
-        # Обновление таблицы...
-        # ... остальной код без изменений
+                    xls_id = row[2].strip() if len(row) > 2 and row[2] is not None else ""
+                    cell = row[3] if len(row) > 3 else ""
+                    container = cell.split("/")[-1].strip() if cell and "/" in cell else (cell.strip() if cell else "")
+                    records.append((xls_id, container))
 
     except Exception as e:
         logger.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
+        return
+
+    # Обновляем таблицу: expected (values[1]) и служебное поле xls_id
+    for i, (xls_id, code) in enumerate(records):
+        if i < len(table_entries):
+            table_entries[i]["code"] = code
+            table_entries[i]["xls_id"] = xls_id
+
+            current_values = list(tree.item(table_entries[i]["item_id"], 'values'))
+            # гарантируем длину
+            while len(current_values) < 5:
+                current_values.append("")
+            current_values[1] = code  # "Контейнер из XLS"
+            tree.item(table_entries[i]["item_id"], values=current_values)
+
+    # Возвращаем список контейнеров (как раньше) — если где-то используется
+    return [c for _, c in records]
 
 def init_ocr_engine():
     global ocr_reader, EASYOCR_AVAILABLE, PADDLEOCR_AVAILABLE
@@ -1561,7 +2115,6 @@ def init_ocr_engine():
         logger.error("Ошибка", f"Не удалось инициализировать {selected_engine}: {e!s}")
         ocr_reader = None
 
-
 def update_table(data, tree_widget):
     """Обновление таблицы Treeview"""
     global tree, table_entries, expected_containers
@@ -1585,7 +2138,6 @@ def update_table(data, tree_widget):
             "item_id": item_id,  # Сохраняем ID элемента Treeview
         }
         table_entries.append(entry)
-
 
 def on_match_edit(row_index):
     """Обработчик редактирования поля совпадения"""
@@ -1612,11 +2164,9 @@ def update_score(row_index):
         bg_color = "lightgreen" if score >= 0.9 else "khaki" if score >= 0.7 else "tomato"
         entry["label_score"].config(bg=bg_color)
 
-
 # Функция для проверки обновлений
 def check_for_updates():
     threading.Thread(target=_check_updates, daemon=True).start()
-
 
 def _check_updates():
     try:
@@ -1645,7 +2195,6 @@ def _check_updates():
                 # text_output.insert(tk.END, f"У вас последняя версия.\n")
     except Exception:
         pass  # Не блокировать интерфейс при ошибках
-
 
 # Функция для сравнения версий
 def compare_versions(current_version: str, latest_version: str) -> bool:
@@ -1683,22 +2232,19 @@ def check_dependencies():
 def main():
     """Основная функция для запуска приложения."""
     try:
-        set_tesseract_path()
         read_env()
+        # check_dependencies
 
         # Проверка замены main_new → main ДО запуска интерфейса
-        AutoUpdater.check_post_restart()
+        # AutoUpdater.check_post_restart()
         create_interface()  # Создание интерфейса
+        set_tesseract_path()
 
         # Обновление статуса перед проверкой обновлений
         logger.info("Проверка обновлений...")
-
-        updater = AutoUpdater(root)
-        updater.check_for_update()  # Здесь будет проверка наличия обновлений
-
-        # Если обновление доступно, то после загрузки обновления приложение будет перезапущено.
-        logger.info("Готово")
-        # check_for_updates()
+        check_for_updates()
+        # updater = AutoUpdater(root)
+        # updater.check_for_update()  # Здесь будет проверка наличия обновлений
 
         root.mainloop()  # Запуск цикла обработки событий
     except KeyboardInterrupt:

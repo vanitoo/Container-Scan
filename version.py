@@ -1,3 +1,3 @@
-from __future__ import annotations
-
-__version__ = "1.2.2"
+# version.py
+__all__ = ["__version__"]
+__version__ = "1.2.3"
