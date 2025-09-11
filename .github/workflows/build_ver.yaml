@@ -57,9 +57,8 @@ jobs:
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
-          pyinstaller --onefile --windowed --clean main.py ^
-            --hidden-import=_ssl ^
-            --collect-data certifi
+          pyinstaller --onefile --windowed --clean --hidden-import=_ssl --collect-data certifi main.py 
+
         # Пояснение:
         # --hidden-import=_ssl   → страхуем явное включение SSL-модуля
         # --collect-data certifi → берём корневые сертификаты (cacert.pem) в бандл
