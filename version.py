@@ -1,3 +1,3 @@
 # version.py
 __all__ = ["__version__"]
-__version__ = "1.2.3"
+__version__ = "1.4.2"

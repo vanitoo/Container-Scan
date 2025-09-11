@@ -67,7 +67,7 @@ class UniversalLogger:
 
     def __init__(self):
         if not self._initialized:
-            self.logger = logging.getLogger("RutubeLogger")
+            self.logger = logging.getLogger("CustomLogger")
             self.logger.setLevel(logging.DEBUG)  # По умолчанию самый подробный уровень
             self._initialized = True
 

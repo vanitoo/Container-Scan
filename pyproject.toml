@@ -46,7 +46,6 @@ extend-ignore = ["RUF001"]  # Игнорировать проверку кири
 
 # Настройки isort теперь внутри lint
 [tool.ruff.lint.isort]
-known-first-party = ["opencv_pdf"]
 required-imports = ["from __future__ import annotations"]
 
 # Настройки форматирования

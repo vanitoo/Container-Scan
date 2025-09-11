@@ -26,5 +26,6 @@ if not exist .venv\Lib\site-packages\installed (
 
 pyinstaller --onefile --windowed --clean --strip main.py
 
+
 echo done
 

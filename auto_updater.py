@@ -1,172 +1,112 @@
-from __future__ import annotations
-
 import os
-import shutil
 import sys
-import tkinter as tk
-import webbrowser
-from tkinter import messagebox
 import requests
-import logging
 import threading
-import time
+import tkinter as tk
+import tkinter.messagebox as messagebox
+from version import __version__ as CURRENT_VERSION
+import logging
 
-# Настройка логирования
-logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("RutubeLogger")
 
 
 class AutoUpdater:
-    UPDATE_URL = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
+    UPDATE_URL = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
     DOWNLOAD_URL = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/download/v{version}/main.exe"
-    from version import __version__
 
-    CURRENT_VERSION = __version__
-    LOCAL_EXE = "main.exe"
-    NEW_EXE = "main_new.exe"
+    def __init__(self, root):
+        self.root = root
+        self.add_about_button()
+        self.show_version_in_title()
+        # Задержка запуска обновления на 10 секунд
+        self.root.after(10_000, self.check_for_update_async)
 
-    def __init__(self, parent):
-        self.add_about_button(parent)
-        self.show_version_in_title(parent)
-        self.parent = parent
-        self.schedule_auto_update()
-
-
-    def schedule_auto_update(self, interval_minutes=1):
-        """Запланировать автообновление через каждые 30 минут"""
-        logger.info(f"Автообновление будет проверяться каждые {interval_minutes} минут.")
-        threading.Timer(interval_minutes * 60, self.check_for_update).start()
-
-    def check_for_update(self):
-        logger.info("Проверка наличия обновлений...")
-        latest_version = self.get_latest_version()
-        if not latest_version:
-            logger.error("Не удалось получить информацию о последней версии.")
-            return
-
-        if self.is_newer_version(latest_version):
-            logger.info(f"Доступна новая версия {latest_version}. Пользователю предложено обновить.")
-            result = messagebox.askyesno("Обновление доступно", f"Доступна новая версия {latest_version}. Обновить?")
-            if result:
-                logger.info("Пользователь согласился на обновление.")
-                self.download_update(latest_version)
-            else:
-                logger.info("Пользователь отклонил обновление.")
-        else:
-            logger.info("У вас установлена последняя версия.")
-
-        self.schedule_auto_update()
-
-    def get_latest_version(self):
+    def get_latest_version(self) -> str:
+        logger.info("Проверка обновлений...")
         try:
-            # URL для получения информации о релизах
-            repo_url = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
-            logger.info(f"Запрос к {repo_url} для получения информации о последнем релизе...")
-
-            # Отправляем запрос к GitHub API
-            response = requests.get(repo_url, timeout=5)
-
-            # Если запрос успешен
-            if response.status_code == 200:
-                latest_release = response.json()
-                latest_version = latest_release["tag_name"].lstrip("v")  # Убираем префикс 'v'
-
-                logger.info(f"Получена последняя версия: {latest_version}")
-                return latest_version
-            else:
-                logger.error(f"Ошибка при запросе: {response.status_code}")
-                return None
+            logger.info(f"Запрос к {self.UPDATE_URL} для получения информации о последнем релизе...")
+            response = requests.get(self.UPDATE_URL, timeout=10)
+            response.raise_for_status()
+            latest = response.json()["tag_name"].lstrip("v")
+            logger.info(f"Получена последняя версия: {latest}")
+            return latest
         except Exception as e:
-            logger.error(f"Ошибка получения последней версии: {e}")
-            return None
+            logger.warning(f"Не удалось получить последнюю версию: {e}")
+            return ""
 
-    def is_newer_version(self, latest):
-        return latest > self.CURRENT_VERSION
-
-    def download_update(self, version):
-        try:
-            logger.info(f"Запуск скачивания обновления для версии {version}...")
-            url = self.DOWNLOAD_URL.format(version=version)
-            dest_path = os.path.join(os.path.dirname(sys.executable), self.NEW_EXE)
-
-            logger.info(f"Скачивание обновления с URL: {url}")
-            with requests.get(url, stream=True, timeout=10) as r:
-                r.raise_for_status()
-                with open(dest_path, "wb") as f:
-                    shutil.copyfileobj(r.raw, f)
-
-            logger.info(f"Обновление загружено как {self.NEW_EXE}")
-            messagebox.showinfo("Обновление", f"Обновление загружено как {self.NEW_EXE}. Перезапустить приложение?")
-            self.prompt_restart()  # Перезапускаем приложение с новым файлом
-
-        except Exception as e:
-            logger.error(f"Не удалось скачать обновление: {e}")
-            messagebox.showerror("Ошибка обновления", f"Не удалось скачать обновление: {e}")
-
-    def prompt_restart(self):
-        result = messagebox.askyesno("Перезапуск", "Обновление загружено. Перезапустить приложение?")
-        if result:
-            self.replace_old_with_new()
-            messagebox.showinfo("Успех", "Обновление завершено. Программа будет перезапущена.")
-            sys.exit(0)
-        else:
-            logger.info("Обновление не будет установлено.")
-
-    def replace_old_with_new(self):
-        old_path = os.path.join(os.path.dirname(sys.executable), self.LOCAL_EXE)
-        new_path = os.path.join(os.path.dirname(sys.executable), self.NEW_EXE)
-
-        try:
-            os.remove(old_path)
-            os.rename(new_path, old_path)
-        except Exception as e:
-            logger.error(f"Не удалось заменить файл: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось заменить файл: {e}")
-
-    def show_version_in_title(self, root):
-        latest = self.get_latest_version()
-        if latest and self.is_newer_version(latest):
-            root.title(f"OpenCV PDF - Версия: {self.CURRENT_VERSION} (Доступна: {latest})")
-        else:
-            root.title(f"OpenCV PDF - Версия: {self.CURRENT_VERSION}")
-
-    def add_about_button(self, root):
-        about_button = tk.Button(root, text="О программе", command=self.show_about_info)
-        about_button.pack(side=tk.TOP, anchor="ne", padx=10, pady=5)
-
-    def show_about_info(self):
-        top = tk.Toplevel(self.parent)
-        top.title("О программе")
-        top.geometry("400x150")
-
-        label = tk.Label(top, text=f"Текущая версия: {self.CURRENT_VERSION}", font=("Arial", 12))
-        label.pack(pady=10)
-
-        link = tk.Label(top, text="Открыть GitHub релиз", fg="blue", cursor="hand2")
-        link.pack()
-        link.bind(
-            "<Button-1>",
-            lambda e: webbrowser.open_new_tab("https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases"),
-        )
-
-        result = messagebox.askyesno("Перезапуск", "Перезапустить приложение сейчас?")
-        if result:
-            os.execv(sys.executable, [sys.executable] + sys.argv)
+    def is_newer_version(self, latest: str) -> bool:
+        return self.compare_versions(CURRENT_VERSION, latest) < 0
 
     @staticmethod
-    def check_post_restart():
-        old_path = os.path.join(os.path.dirname(sys.executable), AutoUpdater.LOCAL_EXE)
-        new_path = os.path.join(os.path.dirname(sys.executable), AutoUpdater.NEW_EXE)
+    def compare_versions(v1, v2):
+        def normalize(v):
+            return [int(x) for x in v.split(".")]
+        return (normalize(v1) > normalize(v2)) - (normalize(v1) < normalize(v2))
 
-        if os.path.exists(new_path):
-            result = messagebox.askyesno(
-                "Обновление завершено", f"Найден {AutoUpdater.NEW_EXE}. Заменить текущий {AutoUpdater.LOCAL_EXE}?"
-            )
-            if result:
-                try:
-                    os.remove(old_path)
-                    os.rename(new_path, old_path)
-                    messagebox.showinfo("Успешно", "Обновление завершено. Запустите программу снова.")
-                    sys.exit(0)
-                except Exception as e:
-                    messagebox.showerror("Ошибка", f"Не удалось заменить файл: {e}")
+    def check_for_update_async(self):
+        # Запускаем сетевой запрос в фоне
+        threading.Thread(target=self._check_for_update_worker, daemon=True).start()
+
+    def _check_for_update_worker(self):
+        latest_version = self.get_latest_version()
+        if latest_version and self.is_newer_version(latest_version):
+            logger.info(f"Доступна новая версия {latest_version}")
+            self.root.after(0, lambda: self._show_notification_window(latest_version))
+
+    def _show_notification_window(self, latest_version):
+        # Простое всплывающее окно в правом нижнем углу
+        popup = tk.Toplevel(self.root)
+        popup.title("Доступно обновление")
+        popup.resizable(False, False)
+        popup.attributes("-topmost", True)
+
+        # UI
+        label = tk.Label(popup, text=f"Доступна новая версия: {latest_version}", padx=10, pady=10)
+        label.pack()
+
+        btn_frame = tk.Frame(popup)
+        btn_frame.pack(pady=(0, 10))
+
+        tk.Button(btn_frame, text="Обновить", command=lambda: [popup.destroy(), self.download_update(latest_version)]).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Позже", command=popup.destroy).pack(side="left", padx=5)
+
+        # Позиционирование в правом нижнем углу экрана
+        popup.update_idletasks()
+        screen_width = popup.winfo_screenwidth()
+        screen_height = popup.winfo_screenheight()
+        window_width = popup.winfo_width()
+        window_height = popup.winfo_height()
+        x = screen_width - window_width - 20
+        y = screen_height - window_height - 50
+        popup.geometry(f"+{x}+{y}")
+
+    def download_update(self, version: str):
+        url = self.DOWNLOAD_URL.format(version=version)
+        try:
+            response = requests.get(url, stream=True, timeout=30)
+            response.raise_for_status()
+            exe_path = os.path.join(os.path.dirname(sys.executable), "main.exe")
+            logger.info(f"Загрузка обновления с {url}")
+            with open(exe_path, "wb") as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            logger.info("Обновление успешно загружено.")
+            messagebox.showinfo("Обновление завершено", "Файл обновлён. Пожалуйста, перезапустите программу.")
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке обновления: {e}")
+            messagebox.showerror("Ошибка обновления", f"Не удалось загрузить обновление:\n{e}")
+
+    def add_about_button(self):
+        from tkinter import ttk
+        about_button = ttk.Button(self.root, text="О программе", command=self.show_about)
+        about_button.pack(anchor="ne", padx=10, pady=10)
+
+    def show_about(self):
+        messagebox.showinfo(
+            "О программе",
+            f"Текущая версия: {CURRENT_VERSION}\nПроект с открытым исходным кодом.\nGitHub: https://github.com/vanitoo/pythonProject-OpenCV-PDF"
+        )
+
+    def show_version_in_title(self):
+        self.root.title(f"OpenCV PDF - Версия: {CURRENT_VERSION}")

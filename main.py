@@ -70,6 +70,7 @@ status_zoom_var = None
 status_size_var = None
 status_msg_var  = None
 
+current_theme = "light"  # по умолчанию
 
 # Настройка логирования
 # logging.basicConfig(
@@ -90,30 +91,50 @@ def status_set(*, page=None, total=None, zoom=None, size=None, msg=None):
         status_msg_var.set(msg)
 
 
-def apply_minimal_theme(root):
-    """Лёгкий, лаконичный стиль для Tkinter/ttk с авто-темой и аккуратным Treeview."""
+def apply_minimal_theme2(root, theme="light"):
+    """
+    Лёгкий, лаконичный стиль для Tkinter/ttk с авто-темой и аккуратным Treeview.
+
+    :param root: Tkinter root window
+    :param theme: "light" или "dark"
+    """
     import tkinter as tk
     from tkinter import ttk
 
-    # 1) Попробуем современную тему sv_ttk (Sun Valley).
-    #    Если её нет — используем "clam" + минимальная ручная стилизация.
+    try:
+        import sv_ttk
+        sv_ttk.set_theme(theme)
+        print("[THEME] sv_ttk применена:", theme)  # ← добавь
+        use_sv = True
+    except Exception as e:
+        print("[THEME] sv_ttk не работает:", e)  # ← и это
+        use_sv = False
+
+    # 1) Пробуем современную тему sv_ttk (Sun Valley)
     try:
         import sv_ttk  # pip install sv-ttk
-        sv_ttk.set_theme("light")  # 'light' или 'dark'
+        sv_ttk.set_theme(theme)  # 'light' или 'dark'
         use_sv = True
     except Exception:
         use_sv = False
         style = ttk.Style(root)
         style.theme_use("clam")
 
-        # Базовая палитра (сдержанная, светлая)
-        BG = "#F7F7F9"
-        FG = "#111827"
-        ACCENT = "#2563EB"   # синий для акцентов
-        MUTED = "#6B7280"
-        SEL_BG = "#DBEAFE"
+        if theme == "dark":
+            # TODO: добавить полноценную ручную темную тему при необходимости
+            BG = "#2E2E2E"
+            FG = "#F5F5F5"
+            ACCENT = "#3B82F6"
+            MUTED = "#9CA3AF"
+            SEL_BG = "#374151"
+        else:
+            # Светлая тема по умолчанию
+            BG = "#F7F7F9"
+            FG = "#111827"
+            ACCENT = "#2563EB"
+            MUTED = "#6B7280"
+            SEL_BG = "#DBEAFE"
 
-        # Глобальные виджеты
         style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
         style.configure("TFrame", background=BG)
         style.configure("TLabel", background=BG, foreground=FG)
@@ -122,16 +143,12 @@ def apply_minimal_theme(root):
                   background=[("active", "#E5E7EB")],
                   relief=[("pressed", "sunken")])
 
-        # Toolbar (верхняя панель)
         style.configure("Toolbar.TFrame", background=BG)
-        # Тонкий разделитель под тулбаром
         style.configure("ToolSep.TFrame", background="#E5E7EB")
 
-        # Поля ввода
         style.configure("TEntry", padding=6)
         style.configure("TCombobox", padding=6)
 
-        # Таблица
         style.configure("Treeview",
                         borderwidth=0,
                         rowheight=28,
@@ -145,7 +162,6 @@ def apply_minimal_theme(root):
 
     # 2) Универсальные «хелперы» для зебры и тулбара
     def style_treeview_stripes(tree):
-        # полосатые строки (зебра)
         try:
             tree.tag_configure("oddrow", background="#F3F4F6")
             for i, iid in enumerate(tree.get_children("")):
@@ -155,25 +171,111 @@ def apply_minimal_theme(root):
             pass
 
     def build_toolbar(parent, *widgets):
-        from tkinter import ttk
         bar = ttk.Frame(parent, style="Toolbar.TFrame")
         bar.pack(side="top", fill="x")
-        # Внутренние отступы для элементов
         for w in widgets:
             w.pack(in_=bar, side="left", padx=6, pady=8)
-        # Тонкий разделитель
         sep = ttk.Frame(parent, style="ToolSep.TFrame", height=1)
         sep.pack(side="top", fill="x")
         return bar
 
-    # 3) Сохраним хелперы на root (удобно использовать в create_interface)
+    # 3) Сохраним хелперы на root (для внешнего доступа)
     root._style_helpers = {
         "style_treeview_stripes": style_treeview_stripes,
         "build_toolbar": build_toolbar,
         "sv_ttk": use_sv
     }
 
+def apply_minimal_theme(root, theme="light"):
+    """Минималистичный светлый/тёмный стиль для ttk и sv_ttk (если доступен)."""
+    global current_theme
+    import tkinter as tk
+    from tkinter import ttk
+
+    try:
+        import sv_ttk
+        sv_ttk.set_theme(theme)
+        print("[DEBUG] sv_ttk.set_theme успешно:", theme)  # ← ЭТО ВАЖНО
+        use_sv = True
+    except Exception as e:
+        use_sv = False
+        style = ttk.Style(root)
+        style.theme_use("clam")
+        print("[DEBUG] sv_ttk ошибка:", e)
+
+        # Цветовая палитра
+        if theme == "dark":
+            BG = "#1F2937"  # фоновый
+            FG = "#E5E7EB"  # текст
+            ACCENT = "#3B82F6"
+            MUTED = "#9CA3AF"
+            SEL_BG = "#374151"
+        else:
+            BG = "#F7F7F9"
+            FG = "#111827"
+            ACCENT = "#2563EB"
+            MUTED = "#6B7280"
+            SEL_BG = "#DBEAFE"
+
+        style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
+        style.configure("TFrame", background=BG)
+        style.configure("TLabel", background=BG, foreground=FG)
+        style.configure("TButton", padding=8, relief="flat")
+        style.map("TButton",
+                  background=[("active", "#E5E7EB")],
+                  relief=[("pressed", "sunken")])
+
+        style.configure("Toolbar.TFrame", background=BG)
+        style.configure("ToolSep.TFrame", background="#E5E7EB")
+
+        style.configure("TEntry", padding=6)
+        style.configure("TCombobox", padding=6)
+
+        style.configure("Treeview",
+                        borderwidth=0,
+                        rowheight=28,
+                        font=("Segoe UI", 10))
+        style.configure("Treeview.Heading",
+                        font=("Segoe UI Semibold", 10),
+                        foreground=MUTED)
+        style.map("Treeview",
+                  background=[("selected", SEL_BG)],
+                  foreground=[("selected", FG)])
+
+    def style_treeview_stripes(tree):
+        try:
+            tree.tag_configure("oddrow", background="#F3F4F6")
+            for i, iid in enumerate(tree.get_children("")):
+                if i % 2 == 1:
+                    tree.item(iid, tags=("oddrow",))
+        except Exception:
+            pass
+
+    def build_toolbar(parent, *widgets):
+        bar = ttk.Frame(parent, style="Toolbar.TFrame")
+        bar.pack(side="top", fill="x")
+        for w in widgets:
+            w.pack(in_=bar, side="left", padx=6, pady=8)
+        sep = ttk.Frame(parent, style="ToolSep.TFrame", height=1)
+        sep.pack(side="top", fill="x")
+        return bar
+
+    root._style_helpers = {
+        "style_treeview_stripes": style_treeview_stripes,
+        "build_toolbar": build_toolbar,
+        "sv_ttk": use_sv
+    }
+
+
+current_theme = "light"  # по умолчанию
+
 def toggle_theme():
+    global current_theme
+    current_theme = "dark" if current_theme == "light" else "light"
+    apply_minimal_theme(root, current_theme)
+
+
+def toggle_theme2():
     """Переключатель темы: если есть sv_ttk — используем его; иначе ручной фоллбэк."""
     from tkinter import ttk
     helpers = getattr(root, "_style_helpers", {})
@@ -893,7 +995,7 @@ def extract_text_by_coords(page_num, coords_canvas):
         pix = page.get_pixmap(dpi=300)
         pil_img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         cropped = pil_img.crop(coords_pdf)
-        return recognize_with_selected_engine(cropped)
+        return recognize_with_selected_engine(cropped, engine)
     except Exception as e:
         logger.info(f"Ошибка при OCR страницы {page_num + 1}: {e}")
         return ""
@@ -1307,6 +1409,202 @@ def insert_link(text_widget, text, url):
 
 
 
+# def create_interface2():
+#     global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
+#     global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
+#     global ocr_engine_var, table_frame, tree
+#     global selected_areas
+#     global debug_mode
+#     global extra_mode, frame_extra
+#     global frame_main, frame_canvases
+#
+#     root = tk.Tk()
+#     apply_minimal_theme(root)
+#
+#     extra_mode = tk.BooleanVar(value=False)
+#     root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
+#     root.protocol("WM_DELETE_WINDOW", on_closing)
+#
+#     window_width = 1400
+#     window_height = 800
+#     screen_width = root.winfo_screenwidth()
+#     screen_height = root.winfo_screenheight()
+#     x = (screen_width // 2) - (window_width // 2)
+#     y = (screen_height // 2) - (window_height // 2)
+#     root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+#
+#     frame_top = tk.Frame(root)
+#     # frame_top.pack(fill="x", expand=True)
+#     frame_top.pack(side=tk.TOP, fill="x", expand=False, anchor="n")
+#     frame_top.columnconfigure(2, weight=1)
+#
+#     frame_extra = tk.Frame(root)
+#     if extra_mode.get():
+#         frame_extra.pack(pady=5, padx=10, fill="x")
+#
+#     frame_main = tk.Frame(root)
+#     frame_main.pack(pady=5, padx=10, fill="x")
+#
+#     button_style = {"width": 20, "anchor": "center"}
+#
+#     btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, **button_style)
+#     btn_load_registry = tk.Button(frame_top, text="Выбрать XLS", command=load_registry, **button_style)
+#     entry_pdf_path = tk.Entry(frame_top)
+#     btn_recognize = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread, **button_style)
+#     btn_match = tk.Button(frame_top, text="Сопоставить", command=match_with_expected, **button_style)
+#     btn_save = tk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save), **button_style)
+#
+#     btn_select_pdf.grid(row=0, column=0, padx=5, pady=5)
+#     btn_load_registry.grid(row=0, column=1, padx=5, pady=5)
+#     entry_pdf_path.grid(row=0, column=2, padx=5, pady=5, sticky="we")
+#     btn_recognize.grid(row=0, column=3, padx=5, pady=5)
+#     btn_match.grid(row=0, column=4, padx=5, pady=5)
+#     btn_save.grid(row=0, column=5, padx=5, pady=5)
+#
+#     frame_left = tk.Frame(frame_main)
+#     frame_left.pack(side=tk.LEFT, fill="x", expand=False)
+#
+#     button_width = 15
+#     btn_prev = tk.Button(frame_left, text="← Назад", command=prev_page, width=button_width)
+#     btn_next = tk.Button(frame_left, text="Вперед →", command=next_page, width=button_width)
+#     btn_check = tk.Button(frame_left, text="Проверить лист", command=check_image, width=button_width)
+#     btn_save_page = tk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
+#     extra_checkbutton = tk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
+#
+#     btn_prev.pack(side=tk.LEFT, padx=2)
+#     btn_next.pack(side=tk.LEFT, padx=2)
+#     btn_check.pack(side=tk.LEFT, padx=2)
+#     btn_save_page.pack(side=tk.LEFT, padx=2)
+#     extra_checkbutton.pack(side=tk.LEFT, padx=2)
+#
+#     separator1 = ttk.Separator(frame_main, orient="vertical")
+#     separator1.pack(side=tk.LEFT, fill="y", padx=5)
+#
+#     frame_left_extra = tk.Frame(frame_extra)
+#     frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
+#
+#     recognition_mode = tk.IntVar(value=0)
+#     adv_checkbutton = tk.Checkbutton(frame_left_extra, text="Advance", variable=recognition_mode)
+#
+#     debug_mode = tk.BooleanVar(value=False)
+#     debug_checkbutton = tk.Checkbutton(frame_left_extra, text="Debug", variable=debug_mode, command=update_debug_mode)
+#
+#     adv_checkbutton.pack(side=tk.LEFT, padx=2)
+#     debug_checkbutton.pack(side=tk.LEFT, padx=2)
+#
+#     # btn_theme = ttk.Button(frame_left_extra, text="Тема", command=toggle_theme)
+#     # btn_theme.grid(row=0, column=6, padx=6, pady=8, sticky="e")
+#
+#
+#     separator2 = ttk.Separator(frame_extra, orient="vertical")
+#     separator2.pack(side=tk.LEFT, fill="y", padx=5)
+#
+#     frame_center = tk.Frame(frame_extra)
+#     frame_center.pack(side=tk.LEFT, fill="x", expand=True)
+#     ocr_container = tk.Frame(frame_center)
+#     ocr_container.pack(fill="x", expand=True)
+#
+#     lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
+#     ocr_engine_var = tk.StringVar(value="Tesseract")
+#     ocr_options = ["Tesseract","EasyOCR","PaddleOCR"]
+#     # if EASYOCR_AVAILABLE:
+#     #     ocr_options.append("EasyOCR")
+#     # if PADDLEOCR_AVAILABLE:
+#     #     ocr_options.append("PaddleOCR")
+#     ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
+#     btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
+#
+#     lbl_ocr.pack(side=tk.LEFT, padx=2)
+#     ocr_menu.pack(side=tk.LEFT, padx=2)
+#     btn_init_ocr.pack(side=tk.LEFT, padx=2)
+#
+#     separator3 = ttk.Separator(frame_extra, orient="vertical")
+#     separator3.pack(side=tk.LEFT, fill="y", padx=5)
+#
+#     frame_right = tk.Frame(frame_extra)
+#     frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
+#
+#     lbl_pattern = tk.Label(frame_right, text="Шаблон:")
+#     regex_pattern_entry = tk.Entry(frame_right, width=25)
+#     coordinates_entry = tk.Entry(frame_right, width=20)
+#
+#     lbl_pattern.pack(side=tk.LEFT, padx=2)
+#     regex_pattern_entry.pack(side=tk.LEFT, padx=2)
+#     coordinates_entry.pack(side=tk.LEFT, padx=2)
+#
+#     regex_pattern_entry.insert(0, regex_pattern)
+#     coordinates_entry.bind("<KeyRelease>", update_coordinates)
+#
+#     # Создание холстов и таблицы
+#     frame_canvases = tk.Frame(root)
+#     frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
+#
+#     canvas_width = 750 // 2
+#     canvas_height = 500
+#
+#     # Левый холст (PDF)
+#     canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+#     canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
+#
+#     # Правый холст (выделенная область)
+#     canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
+#     canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
+#
+#     # Обёртка для таблицы Treeview
+#     table_frame = tk.Frame(frame_canvases)
+#     table_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+#
+#     # Создание Treeview с прокруткой
+#     tree_scroll = tk.Scrollbar(table_frame)
+#     tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+#
+#     tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
+#     tree.pack(fill=tk.BOTH, expand=True)
+#
+#     tree_scroll.config(command=tree.yview)
+#
+#     # Настройка колонок
+#     tree["columns"] = ("number", "expected", "recognized", "match", "score")
+#     tree.column("#0", width=0, stretch=tk.NO)  # Скрытая колонка
+#     tree.column("number", width=50, anchor=tk.CENTER)
+#     tree.column("expected", width=150, anchor=tk.W)
+#     # tree.column("expected", width=0, stretch=tk.NO)
+#     tree.column("recognized", width=150, anchor=tk.W)
+#     tree.column("match", width=150, anchor=tk.W)
+#     tree.column("score", width=50, anchor=tk.CENTER)
+#
+#     # Заголовки
+#     tree.heading("number", text="№")
+#     tree.heading("expected", text="Контейнер из XLS")
+#     tree.heading("recognized", text="Контейнер распознанный")
+#     tree.heading("match", text="Совпадение")
+#     tree.heading("score", text="Коэффициент")
+#
+#     # Привязка события двойного клика для перехода к странице
+#     tree.bind("<Button-1>", on_tree_click)
+#     tree.bind("<Return>", on_tree_enter)
+#
+#     # Настройка обработчиков событий для холстов
+#     canvas.bind("<Button-1>", define_coordinates)
+#     canvas.bind("<B1-Motion>", draw_rectangle)
+#     canvas.bind("<ButtonRelease-1>", finish_coordinates)
+#     canvas.bind("<MouseWheel>", zoom_canvas)
+#     canvas2.bind("<MouseWheel>", zoom_canvas2)
+#
+#     # Текстовое поле вывода
+#     text_output = scrolledtext.ScrolledText(root, width=100, height=10)
+#     text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
+#     text_output.config(state="normal")
+#     sys.stdout = TextRedirector(text_output)
+#
+#     # Добавляем гиперссылки
+#     text_output.tag_configure("hyperlink", foreground="blue", underline=True)
+#
+#     set_default_coordinates(coordinates_entry)
+#
+#     toggle_extra_options()
+#     logger.update_gui_handler(text_output)
+
 def create_interface():
     global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
     global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
@@ -1314,207 +1612,12 @@ def create_interface():
     global selected_areas
     global debug_mode
     global extra_mode, frame_extra
-    global frame_main, frame_canvases
-
-    root = tk.Tk()
-    apply_minimal_theme(root)
-
-    extra_mode = tk.BooleanVar(value=False)
-    root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-
-    window_width = 1400
-    window_height = 800
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    x = (screen_width // 2) - (window_width // 2)
-    y = (screen_height // 2) - (window_height // 2)
-    root.geometry(f"{window_width}x{window_height}+{x}+{y}")
-
-    frame_top = tk.Frame(root)
-    # frame_top.pack(fill="x", expand=True)
-    frame_top.pack(side=tk.TOP, fill="x", expand=False, anchor="n")
-    frame_top.columnconfigure(2, weight=1)
-
-    frame_extra = tk.Frame(root)
-    if extra_mode.get():
-        frame_extra.pack(pady=5, padx=10, fill="x")
-
-    frame_main = tk.Frame(root)
-    frame_main.pack(pady=5, padx=10, fill="x")
-
-    button_style = {"width": 20, "anchor": "center"}
-
-    btn_select_pdf = tk.Button(frame_top, text="Выбрать PDF", command=select_pdf, **button_style)
-    btn_load_registry = tk.Button(frame_top, text="Выбрать XLS", command=load_registry, **button_style)
-    entry_pdf_path = tk.Entry(frame_top)
-    btn_recognize = tk.Button(frame_top, text="Запуск распознавания", command=start_recognition_thread, **button_style)
-    btn_match = tk.Button(frame_top, text="Сопоставить", command=match_with_expected, **button_style)
-    btn_save = tk.Button(frame_top, text="Сохранить результаты", command=lambda: save_results(btn_save), **button_style)
-
-    btn_select_pdf.grid(row=0, column=0, padx=5, pady=5)
-    btn_load_registry.grid(row=0, column=1, padx=5, pady=5)
-    entry_pdf_path.grid(row=0, column=2, padx=5, pady=5, sticky="we")
-    btn_recognize.grid(row=0, column=3, padx=5, pady=5)
-    btn_match.grid(row=0, column=4, padx=5, pady=5)
-    btn_save.grid(row=0, column=5, padx=5, pady=5)
-
-    frame_left = tk.Frame(frame_main)
-    frame_left.pack(side=tk.LEFT, fill="x", expand=False)
-
-    button_width = 15
-    btn_prev = tk.Button(frame_left, text="← Назад", command=prev_page, width=button_width)
-    btn_next = tk.Button(frame_left, text="Вперед →", command=next_page, width=button_width)
-    btn_check = tk.Button(frame_left, text="Проверить лист", command=check_image, width=button_width)
-    btn_save_page = tk.Button(frame_left, text="Сохранить лист", command=save_current_page, width=button_width)
-    extra_checkbutton = tk.Checkbutton(frame_left, text="Options", variable=extra_mode, command=toggle_extra_options)
-
-    btn_prev.pack(side=tk.LEFT, padx=2)
-    btn_next.pack(side=tk.LEFT, padx=2)
-    btn_check.pack(side=tk.LEFT, padx=2)
-    btn_save_page.pack(side=tk.LEFT, padx=2)
-    extra_checkbutton.pack(side=tk.LEFT, padx=2)
-
-    separator1 = ttk.Separator(frame_main, orient="vertical")
-    separator1.pack(side=tk.LEFT, fill="y", padx=5)
-
-    frame_left_extra = tk.Frame(frame_extra)
-    frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
-
-    recognition_mode = tk.IntVar(value=0)
-    adv_checkbutton = tk.Checkbutton(frame_left_extra, text="Advance", variable=recognition_mode)
-
-    debug_mode = tk.BooleanVar(value=False)
-    debug_checkbutton = tk.Checkbutton(frame_left_extra, text="Debug", variable=debug_mode, command=update_debug_mode)
-
-    adv_checkbutton.pack(side=tk.LEFT, padx=2)
-    debug_checkbutton.pack(side=tk.LEFT, padx=2)
-
-    # btn_theme = ttk.Button(frame_left_extra, text="Тема", command=toggle_theme)
-    # btn_theme.grid(row=0, column=6, padx=6, pady=8, sticky="e")
-
-
-    separator2 = ttk.Separator(frame_extra, orient="vertical")
-    separator2.pack(side=tk.LEFT, fill="y", padx=5)
-
-    frame_center = tk.Frame(frame_extra)
-    frame_center.pack(side=tk.LEFT, fill="x", expand=True)
-    ocr_container = tk.Frame(frame_center)
-    ocr_container.pack(fill="x", expand=True)
-
-    lbl_ocr = tk.Label(ocr_container, text="OCR движок:")
-    ocr_engine_var = tk.StringVar(value="Tesseract")
-    ocr_options = ["Tesseract","EasyOCR","PaddleOCR"]
-    # if EASYOCR_AVAILABLE:
-    #     ocr_options.append("EasyOCR")
-    # if PADDLEOCR_AVAILABLE:
-    #     ocr_options.append("PaddleOCR")
-    ocr_menu = tk.OptionMenu(ocr_container, ocr_engine_var, *ocr_options)
-    btn_init_ocr = tk.Button(ocr_container, text="Инициализировать", command=init_ocr_engine)
-
-    lbl_ocr.pack(side=tk.LEFT, padx=2)
-    ocr_menu.pack(side=tk.LEFT, padx=2)
-    btn_init_ocr.pack(side=tk.LEFT, padx=2)
-
-    separator3 = ttk.Separator(frame_extra, orient="vertical")
-    separator3.pack(side=tk.LEFT, fill="y", padx=5)
-
-    frame_right = tk.Frame(frame_extra)
-    frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
-
-    lbl_pattern = tk.Label(frame_right, text="Шаблон:")
-    regex_pattern_entry = tk.Entry(frame_right, width=25)
-    coordinates_entry = tk.Entry(frame_right, width=20)
-
-    lbl_pattern.pack(side=tk.LEFT, padx=2)
-    regex_pattern_entry.pack(side=tk.LEFT, padx=2)
-    coordinates_entry.pack(side=tk.LEFT, padx=2)
-
-    regex_pattern_entry.insert(0, regex_pattern)
-    coordinates_entry.bind("<KeyRelease>", update_coordinates)
-
-    # Создание холстов и таблицы
-    frame_canvases = tk.Frame(root)
-    frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
-
-    canvas_width = 750 // 2
-    canvas_height = 500
-
-    # Левый холст (PDF)
-    canvas = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
-    canvas.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
-
-    # Правый холст (выделенная область)
-    canvas2 = tk.Canvas(frame_canvases, width=canvas_width, height=canvas_height, bg="grey")
-    canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=5, pady=10)
-
-    # Обёртка для таблицы Treeview
-    table_frame = tk.Frame(frame_canvases)
-    table_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-    # Создание Treeview с прокруткой
-    tree_scroll = tk.Scrollbar(table_frame)
-    tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-    tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
-    tree.pack(fill=tk.BOTH, expand=True)
-
-    tree_scroll.config(command=tree.yview)
-
-    # Настройка колонок
-    tree["columns"] = ("number", "expected", "recognized", "match", "score")
-    tree.column("#0", width=0, stretch=tk.NO)  # Скрытая колонка
-    tree.column("number", width=50, anchor=tk.CENTER)
-    tree.column("expected", width=150, anchor=tk.W)
-    # tree.column("expected", width=0, stretch=tk.NO)
-    tree.column("recognized", width=150, anchor=tk.W)
-    tree.column("match", width=150, anchor=tk.W)
-    tree.column("score", width=50, anchor=tk.CENTER)
-
-    # Заголовки
-    tree.heading("number", text="№")
-    tree.heading("expected", text="Контейнер из XLS")
-    tree.heading("recognized", text="Контейнер распознанный")
-    tree.heading("match", text="Совпадение")
-    tree.heading("score", text="Коэффициент")
-
-    # Привязка события двойного клика для перехода к странице
-    tree.bind("<Button-1>", on_tree_click)
-    tree.bind("<Return>", on_tree_enter)
-
-    # Настройка обработчиков событий для холстов
-    canvas.bind("<Button-1>", define_coordinates)
-    canvas.bind("<B1-Motion>", draw_rectangle)
-    canvas.bind("<ButtonRelease-1>", finish_coordinates)
-    canvas.bind("<MouseWheel>", zoom_canvas)
-    canvas2.bind("<MouseWheel>", zoom_canvas2)
-
-    # Текстовое поле вывода
-    text_output = scrolledtext.ScrolledText(root, width=100, height=10)
-    text_output.pack(side=tk.BOTTOM, fill="x", pady=10, padx=10)
-    text_output.config(state="normal")
-    sys.stdout = TextRedirector(text_output)
-
-    # Добавляем гиперссылки
-    text_output.tag_configure("hyperlink", foreground="blue", underline=True)
-
-    set_default_coordinates(coordinates_entry)
-
-    toggle_extra_options()
-    logger.update_gui_handler(text_output)
-
-def create_interface3():
-    global root, entry_pdf_path, canvas, label_page_number, label_page_size, label_scale, coordinates_entry
-    global canvas2, canvas2_scale, label_coordinates, text_output, regex_pattern_entry, recognition_mode
-    global ocr_engine_var, table_frame, tree
-    global selected_areas
-    global debug_mode
-    global extra_mode, frame_extra
-    global frame_main, frame_canvases
+    global frame_main, frame_canvases, current_theme
 
     # --- окно + тема ---
     root = tk.Tk()
-    apply_minimal_theme(root)
+
+    print("[DEBUG] Тема при старте:", current_theme)
 
     extra_mode = tk.BooleanVar(value=False)
     root.title(f"Распознавание текста из PDF - Текущая версия программы: {__version__}")
@@ -1710,6 +1813,8 @@ def create_interface3():
 
     # Сообщения статуса — справа
     ttk.Label(statusbar, textvariable=status_msg_var).pack(side=tk.RIGHT, padx=8)
+
+    apply_minimal_theme(root, "light")
 
 
 def update_debug_mode():
@@ -2243,7 +2348,8 @@ def main():
         # Обновление статуса перед проверкой обновлений
         logger.info("Проверка обновлений...")
         check_for_updates()
-        # updater = AutoUpdater(root)
+
+        updater = AutoUpdater(root)
         # updater.check_for_update()  # Здесь будет проверка наличия обновлений
 
         root.mainloop()  # Запуск цикла обработки событий
