@@ -3,7 +3,7 @@ name: Generate Changelog Release
 on:
   push:
     branches:
-      - master2
+      - master
   release:
     types: [created]
 

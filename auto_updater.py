@@ -7,7 +7,7 @@ import tkinter.messagebox as messagebox
 from version import __version__ as CURRENT_VERSION
 import logging
 
-logger = logging.getLogger("RutubeLogger")
+logger = logging.getLogger("CustomLogger")
 
 
 class AutoUpdater:
@@ -85,7 +85,7 @@ class AutoUpdater:
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            exe_path = os.path.join(os.path.dirname(sys.executable), "main.exe")
+            exe_path = os.path.join(os.path.dirname(sys.executable), f"main_{version}.exe")
             logger.info(f"Загрузка обновления с {url}")
             with open(exe_path, "wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
