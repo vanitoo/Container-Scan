@@ -32,14 +32,13 @@ jobs:
           pip install -r requirements.txt
           pip install "pyinstaller>=6.3,<7"  # современная ветка без сюрпризов
 
-      # (опционально) показать информацию об SSL — полезно для диагностики
+
+      # Делаем однострочник на PowerShell.
       - name: Print Python & SSL info
-        run: |
-          python - << "PY"
-          import ssl, sys
-          print("Python:", sys.version)
-          print("SSL   :", getattr(ssl, "OPENSSL_VERSION", "unknown"))
-          PY
+        run: >
+          python -c "import ssl, sys; print('Python:', sys.version);
+          print('SSL   :', getattr(ssl, 'OPENSSL_VERSION', 'unknown'))"
+
 
       # Проверка зависимостей на конфликты
       - name: pip check
