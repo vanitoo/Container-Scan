@@ -72,6 +72,24 @@ status_msg_var  = None
 
 current_theme = "light"  # по умолчанию
 
+
+# 1-based для Treeview identify_column / bbox:
+NUMBER_COL = 1
+EXPECTED_COL = 2
+INVOICE_COL = 3
+RECOGNIZED_COL = 4
+MATCH_COL = 5
+SCORE_COL = 6
+
+# Удобные 0-based индексы для массива values:
+IDX_NUMBER = NUMBER_COL - 1
+IDX_EXPECTED = EXPECTED_COL - 1
+IDX_INVOICE = INVOICE_COL - 1
+IDX_RECOGNIZED = RECOGNIZED_COL - 1
+IDX_MATCH = MATCH_COL - 1
+IDX_SCORE = SCORE_COL - 1
+
+
 # Настройка логирования
 # logging.basicConfig(
 #     filename="app.log",
@@ -357,8 +375,8 @@ def match_with_expected():
 
         # Обновляем строку в таблице
         values = list(tree.item(entry["item_id"], "values"))
-        values[3] = best_match  # Совпадение
-        values[4] = f"{best_score:.2f}"  # Коэффициент
+        values[4] = best_match  # Совпадение
+        values[5] = f"{best_score:.2f}"  # Коэффициент
         tree.item(entry["item_id"], values=values)
 
         # Обновляем цвет строки
@@ -678,6 +696,7 @@ def build_table_from_pdf(pdf_doc):
             values=(
                 i + 1,  # № страницы
                 "",     # Контейнер из XLS (пока пусто)
+                "",     # invoice (накладная из XLS) ← НОВОЕ
                 "",     # Распознанный контейнер
                 "",     # Совпадение
                 "",     # Коэффициент
@@ -761,7 +780,7 @@ def start_recognition():
                 table_entries[page_num]["recognized"] = formatted_text
                 item_id = table_entries[page_num]["item_id"]
                 current_values = list(tree.item(item_id, "values"))
-                current_values[2] = formatted_text  # recognized column
+                current_values[3] = formatted_text  # recognized column
                 tree.item(item_id, values=current_values)
 
         messagebox.showinfo("Готово", f"Распознано {pdf_doc.page_count} страниц.")
@@ -777,7 +796,7 @@ def save_results(btn):
     threading.Thread(target=_save_results_worker, args=(btn,), daemon=True).start()
 
 
-def _save_results_worker(btn):
+def _save_results_worker2(btn):
     """Функция-рабочий для сохранения результатов (UI через root.after)."""
     global pdf_doc, table_entries, debug_mode, recognition_results
 
@@ -845,7 +864,7 @@ def _save_results_worker(btn):
             page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
             recognized = (entry.get("recognized") or "").strip()
-            match = (tree.item(entry["item_id"], "values")[3] or "").strip()  # "Совпадение"
+            match = (tree.item(entry["item_id"], "values")[4] or "").strip()  # "Совпадение"
             filename = match if match else recognized if recognized else f"page_{i + 1}"
 
             # префикс из колонки 3 Excel:
@@ -858,6 +877,152 @@ def _save_results_worker(btn):
 
             if debug_mode.get():
                 # сохранить кроп, если действительно есть
+                if 'cropped_image' in globals() and cropped_image is not None:
+                    try:
+                        cropped_image.save(f"{output_file}_cropped.jpg")
+                    except Exception as e_crop:
+                        logger.error(f"Не удалось сохранить вырезку: {e_crop}", exc_info=True)
+
+                # сохранить _info.txt, если есть результат распознавания
+                if i < len(recognition_results):
+                    try:
+                        result = recognition_results[i]
+                        info_file = Path(f"{output_file}_info.txt")
+                        with info_file.open("w", encoding="utf-8") as f:
+                            f.write(f"Страница: {result.get('page')}\n")
+                            f.write(f"Координаты: {result.get('coords')}\n")
+                            f.write(f"Движок OCR: {result.get('engine')}\n")
+                            f.write("\n--- Исходный текст ---\n")
+                            f.write(result.get("raw_text", ""))
+                            f.write("\n\n--- Форматированный текст ---\n")
+                            f.write(result.get("formatted_text", ""))
+                    except Exception as e_info:
+                        logger.error(f"Не удалось сохранить _info.txt: {e_info}", exc_info=True)
+
+        # закрыть прогресс и показать успех — в главном потоке
+        root.after(0, lambda d=output_dir: _close_progress_ok(d))
+
+    except Exception as e:
+        logger.error(f"Ошибка сохранения: {e}", exc_info=True)
+        # закрыть прогресс и показать ошибку — в главном потоке
+        root.after(0, lambda: _close_progress_err(f"Ошибка при сохранении: {e!s}"))
+
+def _save_results_worker(btn):
+    """Функция-рабочий для сохранения результатов (UI через root.after).
+
+    Имена файлов:
+      - базовое имя: match → recognized → page_{i+1}
+      - префикс накладной: ищем строку, где expected == (match|recognized),
+        берём её invoice (приоритетно entry['xls_id'], иначе values[2])
+        и формируем "{invoice}_{basename}".
+    """
+    global pdf_doc, table_entries, debug_mode, recognition_results, tree
+
+    # Все диалоги/окна — только через root.after
+    if not pdf_doc:
+        root.after(0, lambda: messagebox.showerror("Ошибка", "PDF документ не загружен"))
+        root.after(0, lambda: btn.config(state=tk.NORMAL))
+        return
+
+    if not table_entries:
+        root.after(0, lambda: messagebox.showerror("Ошибка", "Нет данных для сохранения"))
+        root.after(0, lambda: btn.config(state=tk.NORMAL))
+        return
+
+    ui = {"win": None, "bar": None}
+
+    def _open_progress():
+        progress = tk.Toplevel(root)
+        progress.title("Сохранение...")
+        w, h = 300, 100
+        root.update_idletasks()
+        x = root.winfo_x() + (root.winfo_width() - w) // 2
+        y = root.winfo_y() + (root.winfo_height() - h) // 2
+        progress.geometry(f"{w}x{h}+{x}+{y}")
+        progress.transient(root)
+        progress.resizable(False, False)
+        tk.Label(progress, text="Идет сохранение результатов").pack(pady=10)
+        bar = ttk.Progressbar(progress, mode="indeterminate")
+        bar.pack(fill="x", padx=20, pady=5)
+        bar.start()
+        ui["win"] = progress
+        ui["bar"] = bar
+
+    def _close_progress_ok(output_dir):
+        if ui.get("bar"):
+            try:
+                ui["bar"].stop()
+            except Exception:
+                pass
+        if ui.get("win"):
+            try:
+                ui["win"].destroy()
+            except Exception:
+                pass
+        messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+        btn.config(state=tk.NORMAL)
+
+    def _close_progress_err(msg):
+        if ui.get("bar"):
+            try:
+                ui["bar"].stop()
+            except Exception:
+                pass
+        if ui.get("win"):
+            try:
+                ui["win"].destroy()
+            except Exception:
+                pass
+        messagebox.showerror("Ошибка", msg)
+        btn.config(state=tk.NORMAL)
+
+    # открыть окно прогресса в главном потоке
+    root.after(0, _open_progress)
+
+    try:
+        # куда сохраняем: рядом с исходным PDF
+        output_dir = Path(entry_pdf_path.get()).parent
+
+        for i, entry in enumerate(table_entries):
+            page_num = entry["index"] - 1
+            page = pdf_doc.load_page(page_num)
+            pix = page.get_pixmap(dpi=200)
+            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            # --- 1) базовое имя: match -> recognized -> page_{i+1}
+            row_values = list(tree.item(entry["item_id"], "values"))
+
+            # match (с учётом новой колонки invoice)
+            match_cell = (row_values[4] if len(row_values) > 4 and row_values[4] else "").strip()
+
+            # recognized: сперва из entry (если уже записан), затем из таблицы (index 3)
+            recognized_cell_in_table = (row_values[3] if len(row_values) > 3 and row_values[3] else "").strip()
+            recognized = (entry.get("recognized") or recognized_cell_in_table or "").strip()
+
+            basename = match_cell or recognized or f"page_{i + 1}"
+
+            # --- 2) ищем накладную по expected == (match|recognized)
+            invoice_prefix = ""
+            search_key = (match_cell or recognized).strip()
+            if search_key:
+                for e in table_entries:
+                    vals = list(tree.item(e["item_id"], "values"))
+                    expected_val = (vals[1] if len(vals) > 1 and vals[1] else "").strip()
+                    if expected_val == search_key:
+                        # приоритетно из структуры записи, иначе из видимой таблицы (колонка invoice)
+                        invoice_prefix = (e.get("xls_id") or (vals[2] if len(vals) > 2 else "") or "").strip()
+                        if invoice_prefix:
+                            break
+
+            # --- 3) итоговое имя
+            filename = f"{invoice_prefix}_{basename}" if invoice_prefix else basename
+
+            # сохраняем
+            output_file = Path(output_dir) / filename
+            page_image.save(f"{output_file}.jpg")
+
+            if debug_mode.get():
+                # сохранить кроп, если действительно есть (глобальный для текущей сессии)
                 if 'cropped_image' in globals() and cropped_image is not None:
                     try:
                         cropped_image.save(f"{output_file}_cropped.jpg")
@@ -1031,7 +1196,7 @@ def check_image():
             table_entries[current_page]["recognized"] = formatted_text
             tree.item(
                 table_entries[current_page]["item_id"],
-                values=(current_page + 1, table_entries[current_page]["code"], formatted_text, "", ""),
+                values=(current_page + 1, table_entries[current_page]["code"], invoice, formatted_text, "", ""),
             )
 
         # Выводим в текстовое поле
@@ -1348,8 +1513,34 @@ class TextRedirector:
         pass  # Для совместимости с sys.stdout
 
 
+def _get_match_and_recognized(values):
+    """Возвращает (match, recognized) с учётом возможной вставки колонки invoice."""
+    # Старый порядок: [number, expected, recognized, match, score]
+    # Новый порядок:  [number, expected, invoice, recognized, match, score]
+    match = (values[4] if len(values) > 4 else (values[3] if len(values) > 3 else "")) or ""
+    recognized_in_row = (values[3] if len(values) > 3 else (values[2] if len(values) > 2 else "")) or ""
+    return match.strip(), recognized_in_row.strip()
+
+def _find_invoice_by_expected(expected_value):
+    """Находит номер накладной по совпадению expected == expected_value.
+    Сначала берём из entry['xls_id'], при наличии колонки invoice — можно вытащить и из values[2].
+    """
+    if not expected_value:
+        return ""
+    ev = expected_value.strip()
+    for e in table_entries:
+        vals = list(tree.item(e["item_id"], "values"))
+        if len(vals) > 1 and (vals[1] or "").strip() == ev:
+            # приоритет — из структуры entry
+            inv = (e.get("xls_id") or "").strip()
+            if not inv and len(vals) > 2:
+                inv = (vals[2] or "").strip()  # если появится явная колонка invoice
+            return inv
+    return ""
+
+
 @safe_execute
-def save_current_page():
+def save_current_page2():
     """Сохранение текущей страницы как изображения."""
     global current_page, pdf_path
     if not pdf_path:
@@ -1368,7 +1559,7 @@ def save_current_page():
 
             # Берем имя из распознанного или совпадения
             recognized = (table_entries[current_page].get("recognized") or "").strip()
-            match = (tree.item(table_entries[current_page]["item_id"], "values")[3] or "").strip()
+            match = (tree.item(table_entries[current_page]["item_id"], "values")[4] or "").strip()
             filename = match or recognized or f"page_{current_page + 1}"
 
             # ← ДОБАВИЛИ префикс из колонки 3 Excel:
@@ -1387,6 +1578,85 @@ def save_current_page():
 
     except Exception as e:
         logger.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
+
+def save_current_page():
+    """Сохранение текущей страницы как изображения.
+    Базовое имя: match → recognized → page_N.
+    Префикс накладной: ищем строку, где expected == (match|recognized), и берём её invoice (xls_id).
+    """
+    global current_page, pdf_path, table_entries, tree, debug_mode
+
+    if not pdf_path:
+        messagebox.showerror("Ошибка", "Не выбран PDF файл.")
+        return
+
+    try:
+        with fitz.open(pdf_path) as pdf:
+            if current_page < 0 or current_page >= pdf.page_count:
+                messagebox.showerror("Ошибка", "Неверный номер страницы.")
+                return
+
+            page = pdf.load_page(current_page)
+            pix = page.get_pixmap(dpi=200)
+            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            # --- 1) Соберём данные строки и базовое имя -----------------------
+            row_values = list(tree.item(table_entries[current_page]["item_id"], "values"))
+
+            # match и recognized по новой схеме (с учётом вставленной колонки invoice)
+            match_cell = (row_values[4] if len(row_values) > 4 and row_values[4] else "").strip()
+            # recognized берём сперва из entry (если уже сохранён там), затем из таблицы
+            recognized_cell_in_table = (row_values[3] if len(row_values) > 3 and row_values[3] else "").strip()
+            recognized = (table_entries[current_page].get("recognized") or recognized_cell_in_table or "").strip()
+
+            # Базовое имя: match → recognized → page_N
+            basename = match_cell or recognized or f"page_{current_page + 1}"
+
+            # --- 2) Найдём накладную по expected == (match|recognized) --------
+            invoice_prefix = ""
+            search_key = (match_cell or recognized).strip()
+            if search_key:
+                for e in table_entries:
+                    vals = list(tree.item(e["item_id"], "values"))
+                    expected_val = (vals[1] if len(vals) > 1 and vals[1] else "").strip()
+                    if expected_val == search_key:
+                        # приоритетно берём из структуры записи, иначе из видимой таблицы (колонка invoice)
+                        invoice_prefix = (e.get("xls_id") or (vals[2] if len(vals) > 2 else "") or "").strip()
+                        if invoice_prefix:
+                            break
+
+            # --- 3) Итоговое имя файла ---------------------------------------
+            filename = f"{invoice_prefix}_{basename}" if invoice_prefix else basename
+
+            # Папка рядом с исходным PDF
+            output_dir = Path(entry_pdf_path.get()).parent
+            output_file_root = Path(output_dir) / f"{current_page + 1}_{filename}"
+
+            # Сохранить полную страницу
+            page_image.save(f"{output_file_root}_full.jpg")
+
+            # При Debug — сохранить кроп, если он есть
+            if debug_mode.get():
+                # Пытаемся использовать глобальный cropped_image, если он есть
+                cropped = globals().get("cropped_image", None)
+                if cropped is not None:
+                    try:
+                        cropped.save(f"{output_file_root}_cropped.jpg")
+                    except Exception:
+                        pass
+                # Либо canvas2.image, если сохранён там
+                elif 'canvas2' in globals() and hasattr(canvas2, "image") and canvas2.image is not None:
+                    try:
+                        canvas2.image.save(f"{output_file_root}_cropped.jpg")
+                    except Exception:
+                        pass
+
+            messagebox.showinfo("Успех", f"Страница сохранена как {output_file_root}_full.jpg")
+
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении страницы: {e}", exc_info=True)
+        messagebox.showerror("Ошибка", f"Не удалось сохранить страницу: {e}")
+
 
 
 def toggle_extra_options():
@@ -1752,16 +2022,18 @@ def create_interface():
     tree.pack(fill=tk.BOTH, expand=True)
     tree_scroll.config(command=tree.yview)
 
-    tree["columns"] = ("number", "expected", "recognized", "match", "score")
+    tree["columns"] = ("number", "expected", "invoice", "recognized", "match", "score")
     tree.column("#0", width=0, stretch=tk.NO)
     tree.column("number",     width=60,  anchor=tk.CENTER)
-    tree.column("expected",   width=170, anchor=tk.W)
+    tree.column("expected",   width=0,   minwidth=0, stretch=tk.NO)
+    tree.column("invoice",    width=0,   stretch=tk.NO)  # скрыто по умолчанию
     tree.column("recognized", width=170, anchor=tk.W)
     tree.column("match",      width=170, anchor=tk.W)
     tree.column("score",      width=80,  anchor=tk.CENTER)
 
     tree.heading("number", text="№")
     tree.heading("expected", text="Контейнер из XLS")
+    tree.heading("invoice", text="Накладная (XLS)")
     tree.heading("recognized", text="Контейнер распознанный")
     tree.heading("match", text="Совпадение")
     tree.heading("score", text="Коэффициент")
@@ -1819,8 +2091,38 @@ def create_interface():
 
 def update_debug_mode():
     """Обновляет режим отладки при изменении чекбокса"""
-    global debug_mode
-    logger.info(f"Debug mode: {debug_mode.get()}")
+    global debug_mode, tree, text_output
+    dbg = bool(debug_mode.get())
+    logger.info(f"Debug mode: {dbg}")
+
+    import logging
+    if dbg:
+        # Показать "Контейнер из XLS"
+        tree.column("expected", width=170, minwidth=50, stretch=tk.YES)
+        tree.heading("expected", text="Контейнер из XLS")
+        tree.column("invoice", width=140, minwidth=50, stretch=tk.YES)
+        tree.heading("invoice", text="Накладная из XLS")
+        # Включить уровень DEBUG
+        logger.logger.setLevel(logging.DEBUG)
+        logger.info("Уровень логов переключен на DEBUG")
+    else:
+        # Скрыть "Контейнер из XLS"
+        tree.column("expected", width=0, minwidth=0, stretch=tk.NO)
+        tree.heading("expected", text="")
+        tree.column("invoice", width=0, minwidth=0, stretch=tk.NO)
+        tree.heading("invoice", text="")
+
+        # Вернуть уровень INFO
+        logger.logger.setLevel(logging.INFO)
+        logger.info("Уровень логов переключен на INFO")
+
+    # Обновить GUI-хендлер, чтобы он подтянул новый уровень
+    try:
+        logger.update_gui_handler(text_output)
+    except Exception:
+        pass
+
+
 
 
 def on_tree_click(event):
@@ -1843,7 +2145,7 @@ def on_tree_click(event):
     goto_page(item)
 
     # Если это двойной клик - дополнительно открываем редактор
-    if is_double_click and column == "#4":  # Только для столбца "Совпадение"
+    if is_double_click and column == "#5":  # Только для столбца "Совпадение"
         edit_cell(item, column)
 
 
@@ -1859,7 +2161,7 @@ def on_tree_enter(event):
 
     tree.see(item)
     goto_page(item)           # как при клике
-    edit_cell(item, "#4")     # открыть редактор "Совпадение"
+    edit_cell(item, "#5")     # открыть редактор "Совпадение"
     return "break"
 
 
@@ -1901,7 +2203,7 @@ def edit_cell(item, column):
 
     # Получаем координаты и текущее значение
     x, y, width, height = tree.bbox(item, column)
-    current_value = tree.item(item, "values")[3]
+    current_value = tree.item(item, "values")[4]
 
     # Создаём поле ввода
     first_input = {"done": False}  # ← флаг для сброса текста при первом вводе
@@ -2080,10 +2382,10 @@ def edit_cell(item, column):
     def save_edit(event=None):
         new_value = entry_edit.get()
         values = list(tree.item(item, "values"))
-        values[3] = new_value
+        values[4] = new_value
 
         # Обновим коэффициент
-        recognized = values[2] if len(values) > 2 else ""
+        recognized = values[3] if len(values) > 3 else ""
         if recognized and new_value:
             # score = is_similar_ratio(recognized, new_value)
             # values[4] = f"{score:.2f}"
@@ -2126,7 +2428,7 @@ def update_row_color(item, score):
         tree.tag_configure("none", background="#ffaaaa")
         tree.item(item, tags=("none",))
 
-def load_registry():
+def load_registry2():
     global table_entries, tree
 
     file_path = filedialog.askopenfilename(filetypes=[("Excel or CSV", "*.xlsx *.csv")])
@@ -2186,6 +2488,103 @@ def load_registry():
 
     # Возвращаем список контейнеров (как раньше) — если где-то используется
     return [c for _, c in records]
+
+def load_registry():
+    import csv
+    import openpyxl
+    from pathlib import Path
+    from tkinter import filedialog, messagebox
+
+    global table_entries, tree
+
+    file_path = filedialog.askopenfilename(filetypes=[("Excel or CSV", "*.xlsx *.csv")])
+    if not file_path:
+        return
+
+    records = []  # список кортежей (xls_id, container)
+
+    try:
+        suffix = Path(file_path).suffix.lower()
+
+        if suffix == ".xlsx":
+            wb = openpyxl.load_workbook(file_path, data_only=True)
+            sheet = wb.active
+            logger.info(f"Чтение данных из Excel файла: {file_path}")
+
+            # Стартуем с 5-й строки: кол.3 → номер накладной (xls_id), кол.4 → контейнер
+            for row in sheet.iter_rows(min_row=5):
+                xls_id = ""
+                container = ""
+
+                # кол.3 (индекс 2)
+                if len(row) > 2 and row[2].value is not None:
+                    xls_id = str(row[2].value).strip()
+
+                # кол.4 (индекс 3) — контейнер; если там путь, берём хвост после '/'
+                if len(row) > 3:
+                    cell = row[3].value
+                    if cell is not None:
+                        s = str(cell)
+                        container = s.split("/")[-1].strip() if "/" in s else s.strip()
+
+                records.append((xls_id, container))
+
+        elif suffix == ".csv":
+            logger.info(f"Чтение данных из CSV файла: {file_path}")
+            with Path(file_path).open(encoding="utf-8") as f:
+                reader = csv.reader(f)
+                for idx, row in enumerate(reader):
+                    # как и раньше — пропуск первых 3 строк (заголовки/служебные)
+                    if idx < 3:
+                        continue
+                    xls_id = row[2].strip() if len(row) > 2 and row[2] is not None else ""
+                    cell = row[3] if len(row) > 3 else ""
+                    if cell:
+                        cell = str(cell)
+                        container = cell.split("/")[-1].strip() if "/" in cell else cell.strip()
+                    else:
+                        container = ""
+                    records.append((xls_id, container))
+        else:
+            messagebox.showerror("Ошибка", f"Неподдерживаемый формат: {suffix}")
+            return
+
+    except Exception as e:
+        logger.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
+        messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
+        return
+
+    # Обновляем таблицу: expected (values[1]) и invoice (values[2]), плюс служебные поля в table_entries
+    updated_rows = min(len(records), len(table_entries))
+    for i in range(updated_rows):
+        xls_id, code = records[i]
+
+        # служебные поля
+        table_entries[i]["code"] = code
+        table_entries[i]["xls_id"] = xls_id
+
+        # видимая таблица
+        item_id = table_entries[i]["item_id"]
+        current_values = list(tree.item(item_id, "values"))
+
+        # гарантируем длину 6: [№, expected, invoice, recognized, match, score]
+        while len(current_values) < 6:
+            current_values.append("")
+
+        current_values[1] = code    # Контейнер из XLS (expected)
+        current_values[2] = xls_id  # Накладная (invoice)
+
+        tree.item(item_id, values=tuple(current_values))
+
+    if len(records) > len(table_entries):
+        logger.warning(
+            f"В реестре {len(records)} записей, в таблице {len(table_entries)} строк. "
+            f"Лишние записи не отображены (нет соответствующих страниц PDF)."
+        )
+
+    # Возвращаем список контейнеров (как раньше), если где-то используется
+    return [c for _, c in records]
+
 
 def init_ocr_engine():
     global ocr_reader, EASYOCR_AVAILABLE, PADDLEOCR_AVAILABLE

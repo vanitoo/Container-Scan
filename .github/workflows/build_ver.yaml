@@ -2,82 +2,113 @@ name: Build and Release - ver .exe
 
 on:
   push:
-    branches:
-      - master
+    branches: [ master ]
   pull_request:
-    branches:
-      - master
+    branches: [ master ]
+
+permissions:
+  contents: write  # нужно для создания релизов/тегов
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # чтобы видеть теги/историю
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.10'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements.txt
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install pyinstaller
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install "pyinstaller>=6.3,<7"  # современная ветка без сюрпризов
 
-    - name: Install MinGW for strip
-      run: |
-        choco install mingw -y
-        $env:PATH = "C:\ProgramData\chocolatey\bin;" + $env:PATH
-      shell: pwsh
+      # (опционально) показать информацию об SSL — полезно для диагностики
+      - name: Print Python & SSL info
+        run: |
+          python - << "PY"
+          import ssl, sys
+          print("Python:", sys.version)
+          print("SSL   :", getattr(ssl, "OPENSSL_VERSION", "unknown"))
+          PY
 
-    - name: Get version from version.py
-      id: get_version
-      run: |
-        $version = (Get-Content version.py | Select-String '__version__ = "(.*)"').Matches.Groups[1].Value
-        echo "version=$version" >> $env:GITHUB_OUTPUT
-      shell: pwsh
+      # Проверка зависимостей на конфликты
+      - name: pip check
+        run: pip check
 
-    - name: Build .exe with PyInstaller
-      run: |
-        pyinstaller --onefile --windowed --clean --strip main.py
+      # Снимок списка пакетов в артефакт (на будущее)
+      - name: Export dependency snapshot
+        run: pip freeze > pip-freeze.txt
 
-    - name: Upload .exe artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: main.exe
-        path: dist/main.exe
+      - name: Get version from version.py
+        id: get_version
+        shell: pwsh
+        run: |
+          $version = (Get-Content version.py | Select-String '__version__ = "(.*)"').Matches.Groups[1].Value
+          echo "version=$version" >> $env:GITHUB_OUTPUT
 
-    - name: Create GitHub Release
-      id: create_release
-      run: |
-        $version = "${{ steps.get_version.outputs.version }}"
-        $release_tag = "v$version"
-        
-        # Проверка существования тега
-        $existing_tags = git ls-remote --tags origin | ForEach-Object { $_ -replace '.*/(v\d+\.\d+\.\d+)$', '$1' }
-        
-        if ($existing_tags -contains $release_tag) {
+      - name: Build .exe with PyInstaller (no strip)
+        run: |
+          pyinstaller --onefile --windowed --clean main.py ^
+            --hidden-import=_ssl ^
+            --collect-data certifi
+        # Пояснение:
+        # --hidden-import=_ssl   → страхуем явное включение SSL-модуля
+        # --collect-data certifi → берём корневые сертификаты (cacert.pem) в бандл
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            dist/main.exe
+            pip-freeze.txt
+
+      - name: Create GitHub Release
+        id: create_release
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $version = "${{ steps.get_version.outputs.version }}"
+          $release_tag = "v$version"
+
+          # Настроим git user, чтобы пушить тег из CI
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Проверка существования тега
+          $existing_tags = git ls-remote --tags origin | ForEach-Object { $_ -replace '.*/(v\d+\.\d+\.\d+)$', '$1' }
+
+          if ($existing_tags -contains $release_tag) {
             Write-Host "Tag $release_tag already exists. Using existing tag."
-        } else {
+          } else {
             Write-Host "Creating new tag: $release_tag"
             git tag $release_tag
             git push origin $release_tag
-        }
-        
-        gh release create $release_tag dist/main.exe --title "Release $release_tag" --notes "Release notes for $release_tag"
-      shell: pwsh
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          }
 
-    - name: Create GitHub Release in another repository
-      run: |
-        $version = "${{ steps.get_version.outputs.version }}"
-        $release_tag = "v$version"
-        
-        gh release create $release_tag dist/main.exe --repo vanitoo/pythonProject-OpenCV-PDF-Build --title "Release $release_tag" --notes "Release notes for $release_tag" --generate-notes
-      shell: pwsh
-      env:
-        GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # Создание релиза с загрузкой файла
+          gh release create $release_tag dist/main.exe --title "Release $release_tag" --notes "Release notes for $release_tag"
+
+      - name: Create GitHub Release in another repository
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}  # личный PAT с правами на repo vanitoo/pythonProject-OpenCV-PDF-Build
+        run: |
+          $version = "${{ steps.get_version.outputs.version }}"
+          $release_tag = "v$version"
+          gh release create $release_tag dist/main.exe `
+            --repo vanitoo/pythonProject-OpenCV-PDF-Build `
+            --title "Release $release_tag" `
+            --notes "Release notes for $release_tag" `
+            --generate-notes

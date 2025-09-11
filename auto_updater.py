@@ -53,7 +53,7 @@ class AutoUpdater:
             logger.info(f"Доступна новая версия {latest_version}")
             self.root.after(0, lambda: self._show_notification_window(latest_version))
 
-    def _show_notification_window(self, latest_version):
+    def _show_notification_window2(self, latest_version):
         # Простое всплывающее окно в правом нижнем углу
         popup = tk.Toplevel(self.root)
         popup.title("Доступно обновление")
@@ -79,6 +79,38 @@ class AutoUpdater:
         x = screen_width - window_width - 20
         y = screen_height - window_height - 50
         popup.geometry(f"+{x}+{y}")
+
+    def _show_notification_window(self, latest_version):
+        # Создаём окно *скрытым*, чтобы не мигало
+        popup = tk.Toplevel(self.root)
+        popup.withdraw()  # ← скрываем сразу
+        popup.title("Доступно обновление")
+        popup.resizable(False, False)
+        popup.attributes("-topmost", True)
+        popup.transient(self.root)  # не светиться в панели задач (аккуратнее в macOS/Linux)
+
+        # UI
+        label = tk.Label(popup, text=f"Доступна новая версия: {latest_version}", padx=10, pady=10)
+        label.pack()
+
+        btn_frame = tk.Frame(popup)
+        btn_frame.pack(pady=(0, 10))
+        tk.Button(btn_frame, text="Обновить",
+                  command=lambda: [popup.destroy(), self.download_update(latest_version)]).pack(side="left", padx=5)
+        tk.Button(btn_frame, text="Позже", command=popup.destroy).pack(side="left", padx=5)
+
+        # Сначала полностью посчитать размеры...
+        popup.update_idletasks()
+        screen_width = popup.winfo_screenwidth()
+        screen_height = popup.winfo_screenheight()
+        window_width = popup.winfo_width()
+        window_height = popup.winfo_height()
+        x = screen_width - window_width - 20
+        y = screen_height - window_height - 50
+        popup.geometry(f"+{x}+{y}")
+
+        # ...и только теперь показать
+        popup.deiconify()
 
     def download_update(self, version: str):
         url = self.DOWNLOAD_URL.format(version=version)
