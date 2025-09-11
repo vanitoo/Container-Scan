@@ -1,11 +1,15 @@
-import os
+from __future__ import annotations
+
+import logging
 import sys
-import requests
 import threading
 import tkinter as tk
 import tkinter.messagebox as messagebox
+from pathlib import Path  # ← добавьте вверху файла
+
+import requests
+
 from version import __version__ as CURRENT_VERSION
-import logging
 
 logger = logging.getLogger("CustomLogger")
 
@@ -41,6 +45,7 @@ class AutoUpdater:
     def compare_versions(v1, v2):
         def normalize(v):
             return [int(x) for x in v.split(".")]
+
         return (normalize(v1) > normalize(v2)) - (normalize(v1) < normalize(v2))
 
     def check_for_update_async(self):
@@ -67,7 +72,9 @@ class AutoUpdater:
         btn_frame = tk.Frame(popup)
         btn_frame.pack(pady=(0, 10))
 
-        tk.Button(btn_frame, text="Обновить", command=lambda: [popup.destroy(), self.download_update(latest_version)]).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame, text="Обновить", command=lambda: [popup.destroy(), self.download_update(latest_version)]
+        ).pack(side="left", padx=5)
         tk.Button(btn_frame, text="Позже", command=popup.destroy).pack(side="left", padx=5)
 
         # Позиционирование в правом нижнем углу экрана
@@ -95,8 +102,9 @@ class AutoUpdater:
 
         btn_frame = tk.Frame(popup)
         btn_frame.pack(pady=(0, 10))
-        tk.Button(btn_frame, text="Обновить",
-                  command=lambda: [popup.destroy(), self.download_update(latest_version)]).pack(side="left", padx=5)
+        tk.Button(
+            btn_frame, text="Обновить", command=lambda: [popup.destroy(), self.download_update(latest_version)]
+        ).pack(side="left", padx=5)
         tk.Button(btn_frame, text="Позже", command=popup.destroy).pack(side="left", padx=5)
 
         # Сначала полностью посчитать размеры...
@@ -117,9 +125,9 @@ class AutoUpdater:
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
-            exe_path = os.path.join(os.path.dirname(sys.executable), f"main_{version}.exe")
+            exe_path = Path(sys.executable).parent / f"main_{version}.exe"
             logger.info(f"Загрузка обновления с {url}")
-            with open(exe_path, "wb") as f:
+            with exe_path.open("wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
@@ -131,13 +139,14 @@ class AutoUpdater:
 
     def add_about_button(self):
         from tkinter import ttk
+
         about_button = ttk.Button(self.root, text="О программе", command=self.show_about)
         about_button.pack(anchor="ne", padx=10, pady=10)
 
     def show_about(self):
         messagebox.showinfo(
             "О программе",
-            f"Текущая версия: {CURRENT_VERSION}\nПроект с открытым исходным кодом.\nGitHub: https://github.com/vanitoo/pythonProject-OpenCV-PDF"
+            f"Текущая версия: {CURRENT_VERSION}\nПроект с открытым исходным кодом.\nGitHub: https://github.com/vanitoo/pythonProject-OpenCV-PDF",
         )
 
     def show_version_in_title(self):

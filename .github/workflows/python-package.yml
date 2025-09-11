@@ -37,7 +37,7 @@ jobs:
 
       - name: Ruff lint & format (autofix)
         run: |
-          ruff check . --fix --unsafe-fixes
+          ruff check .
           ruff format .
 
       - name: Test with pytest

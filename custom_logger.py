@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
-from logging import Logger, LogRecord
+from logging import LogRecord
 from logging.handlers import RotatingFileHandler
-# from typing import Optional
 
+# from typing import Optional
 import colorama
 from colorama import Fore, Style
 
