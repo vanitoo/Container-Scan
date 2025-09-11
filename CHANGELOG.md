@@ -4,6 +4,7 @@ Changelog
 ### ⚙️ Miscellaneous Tasks
 
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 ## [1.2.5] - 2025-05-12
 
 ### 🚜 Refactor
