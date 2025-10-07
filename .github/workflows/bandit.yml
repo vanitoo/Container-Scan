@@ -1,0 +1,11 @@
+# .github/workflows/bandit.yml
+# Ищет небезопасные паттерны в Python-коде
+
+name: Bandit
+on: [pull_request, push]
+jobs:
+  bandit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pipx install bandit && bandit -r .

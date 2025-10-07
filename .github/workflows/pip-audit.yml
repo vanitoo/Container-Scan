@@ -1,0 +1,15 @@
+# .github/workflows/pip-audit.yml
+# Экшен упадёт, если найдёт уязвимости — удобно для блокировки небезопасных PR
+
+name: pip-audit
+on:
+  pull_request:
+    paths: ["requirements*.txt", "pyproject.toml", "poetry.lock"]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pypa/gh-action-pip-audit@v1
+        with:
+          inputs: "requirements.txt"   # или auto-detect для lock-файлов
