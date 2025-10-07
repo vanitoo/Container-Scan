@@ -9,7 +9,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: pypa/gh-action-pip-audit@v1
         with:
           inputs: "requirements.txt"   # или auto-detect для lock-файлов
