@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from contextlib import suppress
 
+import tempfile
+import time
+from pathlib import Path
+
 import csv
 import os
 import re
@@ -64,6 +68,8 @@ selected_areas = []
 recognition_results = []  # Будет хранить словари с результатами для каждой страницы
 last_click_time = 0
 DOUBLE_CLICK_DELAY = 300  # Задержка для двойного клика в миллисекундах
+all_excel_records = []  # ← ДОБАВИТЬ ЭТУ СТРОКУ
+
 
 # статус-бар: переменные
 status_page_var = None
@@ -340,7 +346,7 @@ def is_similar_ratio(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
 
-def match_with_expected():
+def match_with_expected2():
     global table_entries, expected_containers, tree
 
     # Получаем ожидаемые контейнеры из таблицы
@@ -352,6 +358,52 @@ def match_with_expected():
 
     if not expected_containers:
         messagebox.showwarning("Ошибка", "Нет данных для сопоставления в столбце 'Контейнер из XLS'")
+        return
+
+    for entry in table_entries:
+        recognized = entry.get("recognized", "")
+        if not recognized:
+            continue
+
+        best_match = ""
+        best_score = 0.0
+
+        for expected in expected_containers:
+            if not expected:
+                continue
+            score = is_similar_ratio(recognized, expected)
+            if score > best_score:
+                best_score = score
+                best_match = expected
+
+        # Обновляем строку в таблице
+        values = list(tree.item(entry["item_id"], "values"))
+        values[4] = best_match  # Совпадение
+        values[5] = f"{best_score:.2f}"  # Коэффициент
+        tree.item(entry["item_id"], values=values)
+
+        # Обновляем цвет строки
+        if best_score == 1.0:  # Полное совпадение
+            tree.tag_configure("exact_match", background="#a8e6a8")  # Светло-зеленый
+            tree.item(entry["item_id"], tags=("exact_match",))
+        elif best_score > 0:  # Любое другое совпадение
+            tree.tag_configure("partial_match", background="#fff8a8")  # Светло-желтый
+            tree.item(entry["item_id"], tags=("partial_match",))
+        else:  # Нет совпадения
+            tree.tag_configure("no_match", background="#ffaaaa")  # Светло-красный
+            tree.item(entry["item_id"], tags=("no_match",))
+
+def match_with_expected():
+    global table_entries, all_excel_records, tree  # ← добавляем all_excel_records
+
+    # Получаем ожидаемые контейнеры из ВСЕГО Excel файла
+    expected_containers = []
+    for xls_id, container in all_excel_records:
+        if container and container not in expected_containers:  # только непустые и уникальные
+            expected_containers.append(container)
+
+    if not expected_containers:
+        messagebox.showwarning("Ошибка", "Нет данных для сопоставления в загруженном Excel файле")
         return
 
     for entry in table_entries:
@@ -472,7 +524,7 @@ def draw_selection():
         canvas2.config(scrollregion=canvas2.bbox(tk.ALL))
 
 
-def unload_pdf():
+def unload_pdf2():
     global pdf_doc, current_page, page_image, image_display
     global original_page_image, selected_areas, total_pages
     global scale_factor, last_scale_factor
@@ -499,8 +551,7 @@ def unload_pdf():
         canvas.delete("all")
         canvas.config(scrollregion=(0, 0, 0, 0))
 
-
-def select_pdf():
+def select_pdf2():
     global pdf_path, current_page, entry_pdf_path
     try:
         file_path = filedialog.askopenfilename(filetypes=[("PDF файлы", "*.pdf")])
@@ -515,6 +566,256 @@ def select_pdf():
     except Exception as e:
         messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
         logger.warning("Ошибка выбора PDF")
+
+
+def select_pdf():
+    global pdf_path, current_page, entry_pdf_path, pdf_doc
+    try:
+        # Множественный выбор файлов
+        file_paths = filedialog.askopenfilenames(
+            title="Выберите PDF файлы",
+            filetypes=[("PDF файлы", "*.pdf"), ("Все файлы", "*.*")]
+        )
+
+        if not file_paths:
+            return
+
+        # Если выбран один файл - работаем как раньше
+        if len(file_paths) == 1:
+            file_path = file_paths[0]
+            unload_pdf()
+            pdf_path = file_path
+            entry_pdf_path.delete(0, tk.END)
+            entry_pdf_path.insert(0, file_path)
+            current_page = 0
+            load_page()
+        else:
+            # Обработка нескольких файлов
+            process_multiple_pdfs(file_paths)
+
+    except Exception as e:
+        messagebox.showerror("Ошибка", f"Не удалось выбрать или загрузить PDF: {e}")
+        logger.warning("Ошибка выбора PDF")
+
+def process_multiple_pdfs2(file_paths):
+    """Обрабатывает несколько PDF файлов и объединяет их"""
+    global pdf_doc, pdf_path, current_page, entry_pdf_path
+
+    try:
+        unload_pdf()  # Закрываем предыдущий документ
+
+        # Создаем новый объединенный документ
+        merged_doc = fitz.open()
+
+        # Список для информации о файлах
+        file_info = []
+
+        for file_path in file_paths:
+            try:
+                doc = fitz.open(file_path)
+                merged_doc.insert_pdf(doc)
+                file_info.append((file_path, doc.page_count))
+                doc.close()
+                logger.info(f"Добавлен файл: {Path(file_path).name} ({doc.page_count} стр.)")
+            except Exception as e:
+                logger.error(f"Ошибка при обработке файла {file_path}: {e}")
+                continue
+
+        if merged_doc.page_count == 0:
+            messagebox.showerror("Ошибка", "Не удалось загрузить ни одного PDF файла")
+            return
+
+        # Сохраняем объединенный документ во временный файл
+        temp_dir = Path(tempfile.gettempdir())
+        temp_pdf = temp_dir / f"merged_pdf_{int(time.time())}.pdf"
+        merged_doc.save(temp_pdf)
+        merged_doc.close()
+
+        # Загружаем объединенный документ
+        pdf_path = str(temp_pdf)
+        pdf_doc = fitz.open(pdf_path)
+
+        # Обновляем интерфейс
+        entry_pdf_path.delete(0, tk.END)
+        if len(file_paths) == 1:
+            entry_pdf_path.insert(0, file_paths[0])
+        else:
+            # Показываем список файлов в сокращенном виде
+            file_names = [Path(f).name for f in file_paths[:3]]  # Первые 3 файла
+            display_text = f"{', '.join(file_names)}"
+            if len(file_paths) > 3:
+                display_text += f" ... (+{len(file_paths) - 3} файлов)"
+            entry_pdf_path.insert(0, display_text)
+
+        current_page = 0
+        load_page()
+
+        # Показываем информацию о загруженных файлах
+        total_pages = pdf_doc.page_count
+        file_count = len(file_paths)
+        messagebox.showinfo(
+            "Файлы загружены",
+            f"Успешно загружено {file_count} файлов\n"
+            f"Общее количество страниц: {total_pages}\n\n"
+            f"Файлы:\n" + "\n".join([f"• {Path(f).name} ({p} стр.)" for f, p in file_info])
+        )
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке нескольких PDF: {e}")
+        messagebox.showerror("Ошибка", f"Не удалось объединить PDF файлы: {e}")
+
+def process_multiple_pdfs(file_paths):
+    """Обрабатывает несколько PDF файлов и объединяет их"""
+    global pdf_doc, pdf_path, current_page, entry_pdf_path
+
+    try:
+        unload_pdf()  # Закрываем предыдущий документ
+
+        # Создаем новый объединенный документ
+        merged_doc = fitz.open()
+
+        # Список для информации о файлах
+        file_info = []
+
+        for file_path in file_paths:
+            try:
+                doc = fitz.open(file_path)
+                page_count_before = merged_doc.page_count
+                merged_doc.insert_pdf(doc)
+                page_count_after = merged_doc.page_count
+                added_pages = page_count_after - page_count_before
+
+                file_info.append((file_path, added_pages))
+                doc.close()  # Закрываем только после успешного добавления
+                logger.info(f"Добавлен файл: {Path(file_path).name} ({added_pages} стр.)")
+            except Exception as e:
+                logger.error(f"Ошибка при обработке файла {file_path}: {e}")
+                # Пытаемся закрыть документ если он открыт
+                try:
+                    if 'doc' in locals():
+                        doc.close()
+                except:
+                    pass
+                continue
+
+        if merged_doc.page_count == 0:
+            messagebox.showerror("Ошибка", "Не удалось загрузить ни одного PDF файла")
+            merged_doc.close()
+            return
+
+        # Сохраняем объединенный документ во временный файл
+        temp_dir = Path(tempfile.gettempdir())
+        temp_pdf = temp_dir / f"merged_pdf_{int(time.time())}.pdf"
+
+        try:
+            merged_doc.save(temp_pdf)
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении временного файла: {e}")
+            merged_doc.close()
+            messagebox.showerror("Ошибка", f"Не удалось сохранить временный файл: {e}")
+            return
+
+        # Закрываем merged_doc только после успешного сохранения
+        merged_doc.close()
+
+        # Теперь открываем сохраненный файл как новый документ
+        try:
+            pdf_doc = fitz.open(temp_pdf)
+            pdf_path = str(temp_pdf)
+        except Exception as e:
+            logger.error(f"Ошибка при открытии временного файла: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось открыть объединенный PDF: {e}")
+            return
+
+        # Обновляем интерфейс
+        entry_pdf_path.delete(0, tk.END)
+        if len(file_paths) == 1:
+            entry_pdf_path.insert(0, file_paths[0])
+        else:
+            # Показываем список файлов в сокращенном виде
+            file_names = [Path(f).name for f in file_paths[:3]]  # Первые 3 файла
+            display_text = f"{', '.join(file_names)}"
+            if len(file_paths) > 3:
+                display_text += f" ... (+{len(file_paths) - 3} файлов)"
+            entry_pdf_path.insert(0, display_text)
+
+        current_page = 0
+
+        # Перестраиваем таблицу на основе нового документа
+        build_table_from_pdf(pdf_doc)
+        load_page()
+
+        # Показываем информацию о загруженных файлах
+        total_pages = pdf_doc.page_count
+        file_count = len([f for f in file_info if f[1] > 0])  # Только успешно добавленные
+        success_files = [f for f in file_info if f[1] > 0]
+
+        if success_files:
+            success_message = (
+                    f"Успешно загружено {file_count} файлов\n"
+                    f"Общее количество страниц: {total_pages}\n\n"
+                    f"Файлы:\n" + "\n".join([f"• {Path(f[0]).name} ({f[1]} стр.)" for f in success_files])
+            )
+            logger.info(success_message)
+            # Можно оставить messagebox для пользователя, но добавить лог
+            # messagebox.showinfo("Файлы загружены", success_message)
+        else:
+            messagebox.showerror("Ошибка", "Не удалось загрузить ни одного файла")
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке нескольких PDF: {e}")
+        messagebox.showerror("Ошибка", f"Не удалось объединить PDF файлы: {e}")
+        # Убедимся, что все документы закрыты
+        try:
+            if 'merged_doc' in locals():
+                merged_doc.close()
+        except:
+            pass
+
+def unload_pdf():
+    global pdf_doc, current_page, page_image, image_display
+    global original_page_image, selected_areas, total_pages
+    global scale_factor, last_scale_factor, pdf_path
+
+    try:
+        if pdf_doc:
+            pdf_doc.close()
+            pdf_doc = None
+
+        # Удаляем временный файл если он существует и является временным
+        if (pdf_path and
+                'pdf_path' in globals() and
+                'tempfile' in pdf_path.lower() and
+                Path(pdf_path).exists()):
+            try:
+                Path(pdf_path).unlink(missing_ok=True)
+                logger.info(f"Удален временный файл: {pdf_path}")
+            except Exception as e:
+                logger.warning(f"Не удалось удалить временный файл {pdf_path}: {e}")
+
+    except Exception as e:
+        logger.warning(f"Не удалось закрыть PDF: {e}")
+
+    # Сброс параметров
+    current_page = 0
+    page_image = None
+    original_page_image = None
+    image_display = None
+    selected_areas = []
+    total_pages = 0
+    scale_factor = 1.0
+    last_scale_factor = 1.0
+    pdf_path = None
+
+    # Очистка холста
+    if canvas:
+        canvas.delete("all")
+        canvas.config(scrollregion=(0, 0, 0, 0))
+
+    # Очистка таблицы
+    if tree:
+        for item in tree.get_children():
+            tree.delete(item)
 
 
 # Функция загрузки и отображения страницы PDF
@@ -647,7 +948,7 @@ def update_coordinates_entry():
 
 
 # Функция для проверки и форматирования распознанного текста
-def format_extracted_text(text, i):
+def format_extracted_text2(text, i):
     # Удаление всех символов, кроме английских букв и цифр
     cleaned_text = re.sub(r"[^A-Za-z0-9]", "", text).upper()
 
@@ -675,6 +976,95 @@ def format_extracted_text(text, i):
         formatted_text += "@"
 
     return formatted_text
+
+def format_extracted_text(text, page_num):
+    # Удаление всех символов, кроме английских букв и цифр
+    cleaned_text = re.sub(r"[^A-Za-z0-9]", "", text).upper()
+
+    logger.debug(f"Страница {page_num} - очищенный текст: '{cleaned_text}'")
+
+    # Проверка формата: 4 буквы (в верхнем регистре) + 7 цифр
+    if re.match(r"^[A-Z]{4}\d{7}$", cleaned_text):
+        logger.debug(f"Страница {page_num} - корректный формат: '{cleaned_text}'")
+        return cleaned_text
+
+    # Ищем паттерн контейнера в тексте
+    container_pattern = r"[A-Z]{4}\d{7}"
+    matches = re.findall(container_pattern, cleaned_text)
+    if matches:
+        logger.debug(f"Страница {page_num} - найден контейнер в тексте: '{matches[0]}'")
+        return matches[0]
+
+    # Если не нашли полный контейнер, ищем частичные совпадения
+    if len(cleaned_text) >= 11:
+        # Берем первые 11 символов и проверяем
+        potential_container = cleaned_text[:11]
+        logger.debug(f"Страница {page_num} - потенциальный контейнер: '{potential_container}'")
+
+        # Форматируем только если есть хоть какие-то буквы и цифры
+        if any(c.isalpha() for c in potential_container) and any(c.isdigit() for c in potential_container):
+            formatted_text = ""
+            for i, char in enumerate(potential_container):
+                if i < 4 and not char.isalpha():
+                    formatted_text += "@"
+                elif i < 4 and char.islower():
+                    formatted_text += char.upper()
+                elif i >= 4 and not char.isdigit():
+                    formatted_text += "@"
+                else:
+                    formatted_text += char
+            logger.debug(f"Страница {page_num} - отформатировано: '{formatted_text}'")
+            return formatted_text
+
+    logger.debug(f"Страница {page_num} - не удалось распознать контейнер, исходный текст: '{text}'")
+    return "Не распознано"
+
+def format_extracted_text4(text, page_num):
+    # Удаление всех символов, кроме английских букв и цифр
+    cleaned_text = re.sub(r"[^A-Za-z0-9]", "", text).upper()
+
+    logger.debug(f"Страница {page_num} - очищенный текст: '{cleaned_text}'")
+
+    # Новый паттерн: 3 буквы + U + 7 цифр
+    if re.match(r"^[A-Z]{3}U\d{7}$", cleaned_text):
+        logger.debug(f"Страница {page_num} - корректный формат: '{cleaned_text}'")
+        return cleaned_text
+
+    # Ищем паттерн контейнера в тексте
+    container_pattern = r"[A-Z]{3}U\d{7}"
+    matches = re.findall(container_pattern, cleaned_text)
+    if matches:
+        logger.debug(f"Страница {page_num} - найден контейнер в тексте: '{matches[0]}'")
+        return matches[0]
+
+    # Если не нашли полный контейнер, ищем частичные совпадения
+    if len(cleaned_text) >= 11:
+        # Берем первые 11 символов и проверяем
+        potential_container = cleaned_text[:11]
+        logger.debug(f"Страница {page_num} - потенциальный контейнер: '{potential_container}'")
+
+        # Форматируем по новому паттерну: 3 буквы + U + 7 цифр
+        formatted_text = ""
+        for i, char in enumerate(potential_container):
+            if i < 3 and not char.isalpha():
+                formatted_text += "@"  # Заменяем не-буквы в первых 3 позициях
+            elif i < 3 and char.islower():
+                formatted_text += char.upper()  # Переводим в верхний регистр
+            elif i == 3 and char != 'U':
+                formatted_text += 'U'  # Четвертая позиция всегда 'U'
+            elif i > 3 and not char.isdigit():
+                formatted_text += "@"  # Заменяем не-цифры в последних 7 позициях
+            else:
+                formatted_text += char
+
+        # Проверяем, что есть хоть какие-то валидные символы
+        valid_chars = sum(1 for c in formatted_text if c != '@')
+        if valid_chars >= 4:  # Хотя бы 3 буквы + U
+            logger.debug(f"Страница {page_num} - отформатировано: '{formatted_text}'")
+            return formatted_text
+
+    logger.debug(f"Страница {page_num} - не удалось распознать контейнер, исходный текст: '{text}'")
+    return "Не распознано"
 
 
 def build_table_from_pdf(pdf_doc):
@@ -744,7 +1134,7 @@ def start_recognition_thread():
     threading.Thread(target=start_recognition, daemon=True).start()
 
 
-def start_recognition():
+def start_recognition2():
     global selected_areas, pdf_doc, last_scale_factor
 
     if not pdf_doc:
@@ -784,6 +1174,53 @@ def start_recognition():
         logger.warning("Ошибка при распознавании всех страниц")
         messagebox.showerror("Ошибка", f"Произошла ошибка при распознавании: {e}")
 
+def start_recognition():
+    global selected_areas, pdf_doc, last_scale_factor
+
+    if not pdf_doc:
+        messagebox.showwarning("Нет документа", "Пожалуйста, выберите PDF-файл.")
+        return
+
+    # Если нет выделенной области, но есть координаты из .env
+    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
+        draw_selection()  # Визуализируем область
+
+    if not selected_areas:
+        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
+        return
+
+    try:
+        area = selected_areas[0]
+        _, x1, y1, x2, y2 = area
+        coords = (x1, y1, x2, y2)
+        engine = ocr_engine_var.get().lower()
+
+        logger.info(f"Начато массовое распознавание:")
+        logger.info(f" - Координаты на canvas: {coords}")
+        logger.info(f" - Масштаб: {last_scale_factor}")
+        logger.info(
+            f" - Координаты в PDF: ({x1 / last_scale_factor:.1f}, {y1 / last_scale_factor:.1f}) -> ({x2 / last_scale_factor:.1f}, {y2 / last_scale_factor:.1f})")
+        logger.info(f" - Движок: {engine}")
+        logger.info(f" - Режим: {'Advance' if recognition_mode.get() == 1 else 'Basic'}")
+
+        for page_num in range(pdf_doc.page_count):
+            recognized_text = recognize_area(pdf_doc, page_num, coords, engine)
+            formatted_text = format_extracted_text(recognized_text, page_num + 1)
+
+            # Обновляем таблицу
+            if page_num < len(table_entries):
+                table_entries[page_num]["recognized"] = formatted_text
+                item_id = table_entries[page_num]["item_id"]
+                current_values = list(tree.item(item_id, "values"))
+                current_values[3] = formatted_text  # recognized column
+                tree.item(item_id, values=current_values)
+
+        messagebox.showinfo("Готово", f"Распознано {pdf_doc.page_count} страниц.")
+
+    except Exception as e:
+        logger.warning("Ошибка при распознавании всех страниц")
+        messagebox.showerror("Ошибка", f"Произошла ошибка при распознавании: {e}")
 
 def save_results(btn):
     """Запускает сохранение результатов в отдельном потоке"""
@@ -1168,7 +1605,7 @@ def extract_text_by_coords(page_num, coords_canvas):
         return ""
 
 
-def check_image():
+def check_image2():
     global current_page, selected_areas, recognition_results
 
     if not pdf_doc:
@@ -1224,8 +1661,57 @@ def check_image():
         logger.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
 
+def check_image():
+    global current_page, selected_areas, recognition_results
 
-def extract_area_image_from_pdf(pdf_doc, page_index, coords, dpi=200):
+    if not pdf_doc:
+        messagebox.showwarning("Нет файла", "Пожалуйста, выберите PDF-файл.")
+        return
+
+    # Если нет выделенной области, но есть координаты из .env
+    if not selected_areas and all(v is not None for v in [x_start, y_start, x_end, y_end]):
+        selected_areas = [(None, x_start, y_start, x_end, y_end)]
+        draw_selection()  # Визуализируем область
+
+    if not selected_areas:
+        messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
+        return
+
+    try:
+        area = selected_areas[0]
+        _, x1, y1, x2, y2 = area
+        coords = (x1, y1, x2, y2)
+        engine = ocr_engine_var.get().lower()
+
+        # Используем ту же функцию, что и при массовом распознавании
+        recognized_text = recognize_area(pdf_doc, current_page, coords, engine)
+        formatted_text = format_extracted_text(recognized_text, current_page + 1)
+
+        # Обновляем таблицу
+        if current_page < len(table_entries):
+            table_entries[current_page]["recognized"] = formatted_text
+            tree.item(
+                table_entries[current_page]["item_id"],
+                values=(current_page + 1, table_entries[current_page]["code"], "", formatted_text, "", ""),
+            )
+
+        # Выводим в лог
+        if current_page < len(recognition_results):
+            result = recognition_results[current_page]
+            logger.info(f"=== Страница {current_page + 1} ===")
+            logger.info(f"Координаты: {result['coords']}")
+            logger.info(f"Движок: {result['engine']}")
+            logger.info("\n--- Исходный текст ---")
+            logger.info(result["raw_text"])
+            logger.info("\n--- Форматированный текст ---")
+            logger.info(result["formatted_text"])
+
+    except Exception as e:
+        logger.error(f"Ошибка при распознавании страницы {current_page + 1}: {e}", exc_info=True)
+        messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
+
+
+def extract_area_image_from_pdf2(pdf_doc, page_index, coords, dpi=200):
     """Вырезает область изображения из PDF по координатам"""
     x_start, y_start, x_end, y_end = coords
 
@@ -1259,6 +1745,56 @@ def extract_area_image_from_pdf(pdf_doc, page_index, coords, dpi=200):
 
     return cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
 
+def extract_area_image_from_pdf(pdf_doc, page_index, coords, dpi=200):
+    """Вырезает область изображения из PDF по координатам"""
+    global last_scale_factor
+
+    x_start, y_start, x_end, y_end = coords
+
+    # Проверяем корректность координат
+    if x_end <= x_start or y_end <= y_start:
+        raise ValueError("Некорректные координаты области выделения")
+
+    page = pdf_doc.load_page(page_index)
+    pix = page.get_pixmap(dpi=dpi)
+    page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+    # ПЕРЕСЧИТЫВАЕМ координаты из canvas → оригинальное изображение
+    inverse_scale = 1 / last_scale_factor
+    x0 = int(x_start * inverse_scale)
+    y0 = int(y_start * inverse_scale)
+    x1 = int(x_end * inverse_scale)
+    y1 = int(y_end * inverse_scale)
+
+    # Проверяем, чтобы координаты не выходили за границы изображения
+    x0 = max(0, min(x0, page_image.width - 1))
+    y0 = max(0, min(y0, page_image.height - 1))
+    x1 = max(1, min(x1, page_image.width))
+    y1 = max(1, min(y1, page_image.height))
+
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError("Некорректные координаты после масштабирования")
+
+    cropped = page_image.crop((x0, y0, x1, y1))
+    if cropped.size[0] == 0 or cropped.size[1] == 0:
+        raise ValueError("Выделенная область имеет нулевой размер")
+
+
+
+    # УВЕЛИЧИВАЕМ контрастность перед распознаванием
+    from PIL import ImageEnhance
+
+    # Повышаем контрастность
+    enhancer = ImageEnhance.Contrast(cropped)
+    cropped = enhancer.enhance(2.0)  # Увеличиваем контраст в 2 раза
+
+    # Повышаем резкость
+    enhancer = ImageEnhance.Sharpness(cropped)
+    cropped = enhancer.enhance(2.0)  # Увеличиваем резкость в 2 раза
+
+
+    return cv2.cvtColor(np.array(cropped), cv2.COLOR_RGB2BGR)
+
 
 def recognize_with_selected_engine(image, engine):
     """Распознает текст с использованием выбранного движка OCR"""
@@ -1281,7 +1817,7 @@ def recognize_with_selected_engine(image, engine):
     return pytesseract.image_to_string(image, lang="eng").strip()
 
 
-def recognize_area(pdf_doc, page_index, coords, engine):
+def recognize_area2(pdf_doc, page_index, coords, engine):
     global recognition_results
 
     try:
@@ -1308,6 +1844,67 @@ def recognize_area(pdf_doc, page_index, coords, engine):
             recognition_results.append(result)
 
         # Вывод в консоль (можно закомментировать)
+        logger.info(f"Страница {page_index + 1}: {formatted_text}")
+
+        return formatted_text
+
+    except Exception as e:
+        logger.error(f"Ошибка при распознавании области: {e}", exc_info=True)
+        return ""
+
+def recognize_area(pdf_doc, page_index, coords, engine):
+    global recognition_results
+
+    try:
+        cropped_image = extract_area_image_from_pdf(pdf_doc, page_index, coords)
+        if cropped_image is None or cropped_image.size == 0:
+            return ""
+
+
+        # Сохраняем изображение для отладки (только в debug режиме)
+        if debug_mode.get():
+            debug_dir = Path("debug_images")
+            debug_dir.mkdir(exist_ok=True)
+            debug_image_path = debug_dir / f"page_{page_index + 1}_debug.jpg"
+            cv2.imwrite(str(debug_image_path), cropped_image)
+            logger.debug(f"Сохранено отладочное изображение: {debug_image_path}")
+
+
+        # ЕДИНЫЙ ПОДХОД: используем улучшенное распознавание если включен Advance режим
+        if recognition_mode.get() == 1:  # Advance режим
+            recognized_text = enhanced_recognition(
+                cropped_image,
+                use_grayscale=True,
+                use_median_blur=True,
+                use_thresholding=True,
+                use_clahe=True,
+                use_resize=True,
+                use_deskew=True,               # Включим коррекцию наклона
+                use_noise_removal=True,
+                use_morphological_ops=True,    # Включим морфологические операции
+                use_channel_extraction=False,
+                use_edge_preprocessing=False
+            )
+        else:
+            recognized_text = recognize_with_selected_engine(cropped_image, engine)
+
+        formatted_text = format_extracted_text(recognized_text, page_index + 1)
+
+        # Сохраняем результаты
+        result = {
+            "page": page_index + 1,
+            "raw_text": recognized_text,
+            "formatted_text": formatted_text,
+            "coords": coords,
+            "engine": engine,
+        }
+
+        # Обновляем или добавляем запись
+        if len(recognition_results) > page_index:
+            recognition_results[page_index] = result
+        else:
+            recognition_results.append(result)
+
         logger.info(f"Страница {page_index + 1}: {formatted_text}")
 
         return formatted_text
@@ -1858,6 +2455,8 @@ def create_interface():
     # Бинды
     tree.bind("<Button-1>", on_tree_click)
     tree.bind("<Return>", on_tree_enter)
+    tree.bind('<<TreeviewSelect>>', on_tree_selection_change)  # ← ДОБАВИТЬ ЭТУ СТРОКУ
+
 
     canvas.bind("<Button-1>", define_coordinates)
     canvas.bind("<B1-Motion>", draw_rectangle)
@@ -1898,6 +2497,14 @@ def create_interface():
     ttk.Label(statusbar, textvariable=status_msg_var).pack(side=tk.RIGHT, padx=8)
 
     apply_minimal_theme(root, "light")
+
+
+def on_tree_selection_change(event):
+    """Обработчик изменения выделения в treeview (мышь, клавиши)"""
+    current_selection = tree.selection()
+    if current_selection:
+        goto_page(current_selection[0])
+
 
 
 def update_debug_mode():
@@ -1952,9 +2559,55 @@ def on_tree_click(event):
     # Всегда выполняем переход к странице
     goto_page(item)
 
-    # Если это двойной клик - дополнительно открываем редактор
-    if is_double_click and column == "#5":  # Только для столбца "Совпадение"
-        edit_cell(item, column)
+    # # Если это двойной клик - дополнительно открываем редактор
+    # if is_double_click and column == "#5":  # Только для столбца "Совпадение"
+    #     edit_cell(item, column)
+
+    # Если это двойной клик
+    if is_double_click:
+        if column == "#5":  # Столбец "Совпадение"
+            edit_cell(item, column)
+        elif column == "#4":  # Столбец "Контейнер распознанный" (новый функционал)
+            copy_recognized_to_clipboard(item, event)
+
+
+def copy_recognized_to_clipboard(item, event):
+    """Копирует значение распознанного контейнера в буфер обмена и показывает подсказку"""
+    values = tree.item(item, "values")
+    if len(values) > 3 and values[3]:  # values[3] - столбец "Контейнер распознанный"
+        recognized_text = values[3]
+
+        # Копируем в буфер обмена
+        root.clipboard_clear()
+        root.clipboard_append(recognized_text)
+
+        # Показываем всплывающую подсказку
+        show_copy_tooltip(event, recognized_text)
+
+
+def show_copy_tooltip(event, text):
+    """Показывает всплывающую подсказку о копировании"""
+    # Создаем всплывающее окно
+    tooltip = tk.Toplevel(root)
+    tooltip.wm_overrideredirect(True)
+    tooltip.wm_geometry(f"+{event.x_root + 10}+{event.y_root + 10}")
+
+    # Стиль подсказки
+    label = tk.Label(
+        tooltip,
+        text=f"Скопировано: {text}",
+        background="lightgreen",
+        foreground="black",
+        font=("Arial", 9),
+        padx=8,
+        pady=4,
+        relief="solid",
+        borderwidth=1
+    )
+    label.pack()
+
+    # Автоматически закрываем через 1.5 секунды
+    tooltip.after(1500, tooltip.destroy)
 
 
 def on_tree_enter(event):
@@ -1991,7 +2644,7 @@ def goto_page(item):
         pass
 
 
-def edit_cell(item, column):
+def edit_cell2(item, column):
     global expected_containers  # предполагаем, что это список контейнеров из XLS
 
     # Обновляем список контейнеров для автоподсказки — только при несовпадении
@@ -2221,6 +2874,162 @@ def edit_cell(item, column):
     update_listbox()  # показать при открытии
 
 
+def edit_cell(item, column):
+    global expected_containers  # предполагаем, что это список контейнеров из XLS
+    global all_excel_records  # ← ИСПОЛЬЗУЕМ ПОЛНЫЙ СПИСОК ИЗ EXCEL
+
+    # Используем ВСЕ контейнеры из загруженного Excel
+    expected_containers = []
+    for xls_id, container in all_excel_records:
+        if container and container not in expected_containers:  # только непустые и уникальные
+            expected_containers.append(container)
+
+    # Сортируем для удобства
+    expected_containers.sort()
+
+    # Получаем координаты и текущее значение
+    x, y, width, height = tree.bbox(item, column)
+    current_value = tree.item(item, "values")[4]
+
+    # Создаём поле ввода
+    first_input = {"done": False}
+    entry_edit = tk.Entry(tree, borderwidth=0, font=("Arial", 10))
+    entry_edit.place(x=x, y=y, width=width, height=height, anchor=tk.NW)
+    entry_edit.insert(0, current_value)
+    entry_edit.focus_set()
+
+    # Создаём Listbox для автоподсказок (увеличиваем высоту)
+    listbox = tk.Listbox(tree, height=min(15, len(expected_containers)))  # Автоматическая высота
+    listbox.place(x=x, y=y + height, width=width)
+
+
+    def update_listbox():
+        typed = entry_edit.get()
+        # Ищем совпадения по подстроке (не только по началу)
+        matches = [c for c in expected_containers if typed.upper() in c.upper()]
+        listbox.delete(0, tk.END)
+        for match in matches:
+            listbox.insert(tk.END, match)
+        if matches:
+            # listbox.place(x=x, y=y + height, width=width)
+            listbox.place(x=x, y=y + height, width=width, height=min(200, len(matches)*20))  # Авто-высота
+        else:
+            listbox.place_forget()
+
+    def on_key_release(event):
+        if not first_input["done"]:
+            if event.char and len(event.char) == 1:
+                char = event.char.upper()
+                entry_edit.delete(0, tk.END)
+                entry_edit.insert(0, char)
+                entry_edit.icursor(1)
+                first_input["done"] = True
+                update_listbox()
+            return
+
+        if event.keysym in ("Up", "Down", "Return"):
+            return
+
+        # Преобразуем весь текст в верхний регистр
+        pos = entry_edit.index(tk.INSERT)
+        text = entry_edit.get().upper()
+        entry_edit.delete(0, tk.END)
+        entry_edit.insert(0, text)
+        entry_edit.icursor(pos)
+
+        update_listbox()
+
+    def on_entry_key(event):
+        # Стрелка вниз — уходим в список подсказок
+        if event.keysym == "Down" and listbox.size() > 0:
+            listbox.focus_set()
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(0)
+            listbox.activate(0)
+            return "break"
+
+        # Enter — сохранить и вернуть фокус в таблицу
+        if event.keysym == "Return":
+            if listbox.winfo_ismapped() and listbox.size() == 1:
+                # автоподстановка единственного варианта
+                selected = listbox.get(0)
+                entry_edit.delete(0, tk.END)
+                entry_edit.insert(0, selected)
+                listbox.place_forget()
+                entry_edit.focus_set()
+
+            save_edit()
+            # фокус и выделение строки в Treeview
+            tree.focus(item)
+            tree.selection_set(item)
+            tree.see(item)
+            tree.focus_set()
+            return "break"
+
+        # Esc — закрыть редактор без сохранения (и вернуть фокус в таблицу)
+        if event.keysym == "Escape":
+            listbox.place_forget()
+            entry_edit.destroy()
+            tree.focus_set()
+            return "break"
+
+        return None
+
+    def on_listbox_key(event):
+        if event.keysym == "Return":
+            on_listbox_select(None)  # подставить выбранный вариант
+            save_edit()
+            tree.focus(item)
+            tree.selection_set(item)
+            tree.see(item)
+            tree.focus_set()
+            return "break"
+        elif event.keysym == "Escape":
+            listbox.place_forget()
+            entry_edit.focus_set()
+            return "break"
+
+    def on_listbox_select(event):
+        if listbox.curselection():
+            selected = listbox.get(listbox.curselection())
+            entry_edit.delete(0, tk.END)
+            entry_edit.insert(0, selected)
+            listbox.place_forget()
+            entry_edit.focus_set()
+
+    def save_edit(event=None):
+        new_value = entry_edit.get()
+        values = list(tree.item(item, "values"))
+        values[4] = new_value
+
+        # Обновим коэффициент
+        recognized = values[3] if len(values) > 3 else ""
+        if recognized and new_value:
+            tree.tag_configure("manual_edit", background="#ddaaff")
+            tree.item(item, tags=("manual_edit",))
+
+        tree.item(item, values=values)
+        entry_edit.destroy()
+        listbox.place_forget()
+
+    def on_entry_focus_out(event):
+        # Проверяем, ушёл ли фокус именно на listbox
+        widget = event.widget.focus_get()
+        if widget != listbox:
+            save_edit()
+
+    # Привязки
+    entry_edit.bind("<KeyRelease>", on_key_release)
+    entry_edit.bind("<FocusOut>", on_entry_focus_out)
+    entry_edit.bind("<KeyPress>", on_entry_key)
+    listbox.bind("<<ListboxSelect>>", on_listbox_select)
+    listbox.bind("<Return>", on_listbox_key)
+    listbox.bind("<Escape>", on_listbox_key)
+    listbox.bind("<Double-Button-1>", on_listbox_select)
+    listbox.bind("<FocusOut>", lambda e: listbox.place_forget())
+    update_listbox()  # показать при открытии
+
+
 def update_row_color(item, score):
     """Обновление цвета строки"""
     if score == 1.0:
@@ -2303,7 +3112,7 @@ def load_registry():
 
     import openpyxl
 
-    global table_entries, tree
+    global table_entries, tree, all_excel_records
 
     file_path = filedialog.askopenfilename(filetypes=[("Excel or CSV", "*.xlsx *.csv")])
     if not file_path:
@@ -2361,6 +3170,9 @@ def load_registry():
         logger.error(f"Ошибка при загрузке реестра: {e}", exc_info=True)
         messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
         return
+
+    all_excel_records = records  # ← СОХРАНИТЬ ВСЕ ЗАПИСИ
+
 
     # Обновляем таблицу: expected (values[1]) и invoice (values[2]), плюс служебные поля в table_entries
     updated_rows = min(len(records), len(table_entries))

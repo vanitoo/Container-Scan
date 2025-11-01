@@ -1,0 +1,53 @@
+name: Python CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        python -m pip install pyinstaller
+
+    - name: Run tests
+      run: |
+        pytest
+
+    - name: Build release
+      run: |
+        pyinstaller --onefile --windowed --clean --strip main.py
+
+    - name: Upload release artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: release
+        path: dist/
+
+
+
+
+    - name: Create Release
+      id: create_release
+      run: |
+        RELEASE_TAG=$(git describe --tags --abbrev=0)
+        gh release create $RELEASE_TAG dist/* --title "Release $RELEASE_TAG" --notes "Release notes for $RELEASE_TAG"
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
