@@ -59,7 +59,7 @@ jobs:
           echo "✅ Warm-up complete."
 
       - name: 🚀 Run AI Review
-        uses: Nikita-Filonov/ai-review@v0.27.0
+        uses: Nikita-Filonov/ai-review@v0.36.0
         env:
           VCS__HTTP_CLIENT__API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VCS__PIPELINE__OWNER: ${{ github.repository_owner }}
