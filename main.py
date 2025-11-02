@@ -1,18 +1,15 @@
 from __future__ import annotations
 
-from contextlib import suppress
-
-import tempfile
-import time
-from pathlib import Path
-
 import csv
 import os
 import re
 import sys
+import tempfile
 import threading
+import time
 import tkinter as tk
 import webbrowser
+from contextlib import suppress
 from difflib import SequenceMatcher
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk

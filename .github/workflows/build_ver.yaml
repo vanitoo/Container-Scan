@@ -32,6 +32,16 @@ jobs:
           pip install -r requirements.txt
           pip install "pyinstaller>=6.3,<7"  # современная ветка без сюрпризов
 
+      - name: Auto-update version on release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          python update_version.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add version.py
+          git commit -m "Auto-increment version [skip ci]" || echo "No version changes to commit"
+          git push
+
 
       # Делаем однострочник на PowerShell.
       - name: Print Python & SSL info
@@ -57,7 +67,7 @@ jobs:
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
-          pyinstaller --onefile --windowed --clean --hidden-import=_ssl --collect-data certifi main.py 
+          pyinstaller --onefile --noconsole --clean --hidden-import=_ssl --collect-all=certifi main.py
 
         # Пояснение:
         # --hidden-import=_ssl   → страхуем явное включение SSL-модуля
