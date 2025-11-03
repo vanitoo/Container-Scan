@@ -39,7 +39,7 @@ def update_version_file():
         )
 
         version_file.write_text(new_content, encoding="utf-8")
-        print(f"Updated version: {current_version} → {new_version}")
+        print(f"Updated version: {current_version} -> {new_version}")
         return new_version
     return None
 
