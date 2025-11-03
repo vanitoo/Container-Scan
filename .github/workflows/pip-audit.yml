@@ -4,12 +4,12 @@
 name: pip-audit
 on:
   pull_request:
-    paths: ["requirements*.txt", "pyproject.toml2", "poetry.lock"]
+    paths: ["requirements*.txt", "pyproject.toml", "poetry.lock"]
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: pypa/gh-action-pip-audit@v1
+      - uses: pypa/gh-action-pip-audit@v1.2.0
         with:
           inputs: "requirements.txt"   # или auto-detect для lock-файлов
