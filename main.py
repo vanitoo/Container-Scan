@@ -182,8 +182,8 @@ def apply_minimal_theme2(root, theme="light"):
             for i, iid in enumerate(tree.get_children("")):
                 if i % 2 == 1:
                     tree.item(iid, tags=("oddrow",))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Не удалось установить тег oddrow: {e}")
 
     def build_toolbar(parent, *widgets):
         bar = ttk.Frame(parent, style="Toolbar.TFrame")
@@ -255,8 +255,8 @@ def apply_minimal_theme(root, theme="light"):
             for i, iid in enumerate(tree.get_children("")):
                 if i % 2 == 1:
                     tree.item(iid, tags=("oddrow",))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Не удалось установить тег oddrow: {e}")
 
     def build_toolbar(parent, *widgets):
         bar = ttk.Frame(parent, style="Toolbar.TFrame")
@@ -294,8 +294,8 @@ def toggle_theme2():
 
             sv_ttk.toggle_theme()
             return
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Ошибка при возврате из функции: {e}")
 
     # --- Фоллбэк для обычного ttk (clam) ---
     style = ttk.Style(root)
@@ -691,8 +691,8 @@ def process_multiple_pdfs(file_paths):
                 try:
                     if 'doc' in locals():
                         doc.close()
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Ошибка при закрытии PDF документа: {e}")
                 continue
 
         if merged_doc.page_count == 0:
@@ -766,8 +766,8 @@ def process_multiple_pdfs(file_paths):
         try:
             if 'merged_doc' in locals():
                 merged_doc.close()
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Ошибка при закрытии объединенного PDF: {e}")
 
 def unload_pdf():
     global pdf_doc, current_page, page_image, image_display
@@ -1392,24 +1392,21 @@ def _save_results_worker(btn):
                 ui["bar"].stop()
 
         if ui.get("win"):
-            try:
+            with suppress(Exception):
                 ui["win"].destroy()
-            except Exception:
-                pass
+
         messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
         btn.config(state=tk.NORMAL)
 
     def _close_progress_err(msg):
         if ui.get("bar"):
-            try:
+            with suppress(Exception):
                 ui["bar"].stop()
-            except Exception:
-                pass
+
         if ui.get("win"):
-            try:
+            with suppress(Exception):
                 ui["win"].destroy()
-            except Exception:
-                pass
+
         messagebox.showerror("Ошибка", msg)
         btn.config(state=tk.NORMAL)
 
@@ -2020,8 +2017,8 @@ def zoom_canvas2(event):
     # где у тебя есть текущее значение масштаба, например scale или canvas_scale:
     try:
         status_set(zoom=f"{int(canvas_scale * 100)}%")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Ошибка обновления статуса масштаба: {e}")
 
 
 def update_coordinates(event):
@@ -2244,14 +2241,15 @@ def save_current_page():
                 if cropped is not None:
                     try:
                         cropped.save(f"{output_file_root}_cropped.jpg")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Не удалось сохранить обрезанное изображение: {e}")
+
                 # Либо canvas2.image, если сохранён там
                 elif "canvas2" in globals() and hasattr(canvas2, "image") and canvas2.image is not None:
                     try:
                         canvas2.image.save(f"{output_file_root}_cropped.jpg")
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Не удалось сохранить изображение canvas2: {e}")
 
             messagebox.showinfo("Успех", f"Страница сохранена как {output_file_root}_full.jpg")
 
@@ -2637,8 +2635,8 @@ def goto_page(item):
     try:
         total = pdf_doc.page_count
         status_set(page=current_page + 1, total=total, msg="Готово")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Ошибка обновления статуса страницы: {e}")
 
 
 def edit_cell2(item, column):
@@ -3318,8 +3316,8 @@ def _check_updates():
                 logger.info("У вас последняя версия.\n")
                 # text_output.delete(1.0, tk.END)
                 # text_output.insert(tk.END, f"У вас последняя версия.\n")
-    except Exception:
-        pass  # Не блокировать интерфейс при ошибках
+    except Exception as e:
+        logger.debug(f"Ошибка вывода в текстовое поле: {e}")
 
 
 # Функция для сравнения версий
