@@ -2,9 +2,17 @@
 # Экшен упадёт, если найдёт уязвимости — удобно для блокировки небезопасных PR
 
 name: pip-audit
+
 on:
   pull_request:
     paths: ["requirements*.txt", "pyproject.toml", "poetry.lock"]
+
+# Минимальные права согласно принципу least privilege
+permissions:
+  contents: read  # только чтение кода
+  pull-requests: read  # только чтение PR
+  checks: write  # запись результатов проверки
+
 jobs:
   audit:
     runs-on: ubuntu-latest
