@@ -1,0 +1,955 @@
+# gui/main_window.py
+from __future__ import annotations
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+import sys
+import threading
+
+from config import WINDOW_SIZE
+from utils.logger import logger
+from utils.updater import AutoUpdater
+from gui.themes import apply_minimal_theme, toggle_theme
+from gui.components import CanvasComponent, TableComponent, StatusBar, TextRedirector
+from pathlib import Path
+from pathlib import Path
+import threading
+from PIL import Image
+
+# gui/main_window.py (добавляем в начало файла)
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox, scrolledtext
+import sys
+import threading
+from pathlib import Path
+from PIL import Image
+
+from config import WINDOW_SIZE
+from utils.logger import logger
+from utils.updater import AutoUpdater
+from gui.themes import apply_minimal_theme
+from gui.components import CanvasComponent, TableComponent, StatusBar, TextRedirector
+
+
+class MainWindow:
+    def __init__(self, app):
+        self.app = app
+        self.state = app.state
+        self.root = None
+        self.components = {}
+
+    # gui/main_window.py (обновляем методы навигации)
+    def prev_page(self):
+        """Переход к предыдущей странице"""
+        if self.app.pdf_service.prev_page() and self.app.pdf_service.create_display_image():
+            self.components['canvas'].display_image()
+            self.components['status'].update_status(
+                page=self.state.current_page + 1,
+                total=self.state.total_pages,
+                msg=f"Страница {self.state.current_page + 1}"
+            )
+        else:
+            messagebox.showinfo("Информация", "Это первая страница")
+
+    def next_page(self):
+        """Переход к следующей странице"""
+        if self.app.pdf_service.next_page() and self.app.pdf_service.create_display_image():
+            self.components['canvas'].display_image()
+            self.components['status'].update_status(
+                page=self.state.current_page + 1,
+                total=self.state.total_pages,
+                msg=f"Страница {self.state.current_page + 1}"
+            )
+        else:
+            messagebox.showinfo("Информация", "Это последняя страница")
+
+    def _load_and_display_page(self):
+        """Загрузка и отображение текущей страницы"""
+        try:
+            # Загружаем страницу
+            if self.app.pdf_service.load_page() and self.app.pdf_service.create_display_image():
+                # Отображаем изображение
+                self.components['canvas'].display_image()
+
+                # Обновляем статус
+                self.components['status'].update_status(
+                    page=self.state.current_page + 1,
+                    total=self.state.total_pages,
+                    msg=f"Страница {self.state.current_page + 1}"
+                )
+
+                # Обновляем таблицу БЕЗ вызова goto_page (чтобы избежать рекурсии)
+                self._update_table_selection(self.state.current_page)
+
+                logger.debug(f"Успешно перешли на страницу {self.state.current_page + 1}")
+            else:
+                logger.error("Не удалось загрузить страницу")
+        except Exception as e:
+            logger.error(f"Ошибка при загрузке страницы: {e}")
+
+    def goto_page_from_table(self, page_num):
+        """Переход на страницу из таблицы"""
+        try:
+            # Проверяем, не пытаемся ли мы перейти на ту же страницу
+            if (self.state.current_page == page_num or
+                    not self.state.pdf_doc or
+                    page_num < 0 or
+                    page_num >= self.state.pdf_doc.page_count):
+                return
+
+            # Устанавливаем текущую страницу
+            self.state.current_page = page_num
+
+            # Загружаем и отображаем страницу
+            self._load_and_display_page()
+
+        except Exception as e:
+            logger.error(f"Ошибка при переходе на страницу {page_num}: {e}")
+
+    def _update_table_selection(self, page_num):
+        """Обновление выделения в таблице БЕЗ вызова навигации"""
+        try:
+            # Устанавливаем флаг программатического выделения
+            self._programmatic_selection = True
+
+            # Снимаем текущее выделение
+            for item in self.tree.selection():
+                self.tree.selection_remove(item)
+
+            # Выделяем строку соответствующей страницы
+            if page_num < len(self.state.table_entries):
+                item_id = self.state.table_entries[page_num]["item_id"]
+                self.tree.selection_set(item_id)
+                self.tree.focus(item_id)
+                self.tree.see(item_id)
+
+        except Exception as e:
+            logger.error(f"Ошибка обновления выделения таблицы: {e}")
+        finally:
+            # Сбрасываем флаг
+            self._programmatic_selection = False
+
+    def create_interface(self):
+        self.root = tk.Tk()
+        self.root.title(f"Распознавание текста из PDF - Текущая версия программы: {self.app.version}")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # Центрирование окна
+        window_width, window_height = WINDOW_SIZE
+        self.root.update_idletasks()
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        x = (sw - window_width) // 2
+        y = (sh - window_height) // 2
+        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+
+        # Применение темы
+        apply_minimal_theme(self.root, self.state.current_theme)
+
+        # Создание компонентов
+        self._create_top_toolbar()
+        self._create_main_toolbar()
+        self._create_extra_toolbar()
+        self._create_canvas_area()
+        self._create_log_area()
+        self._create_statusbar()
+
+        # Инициализация координат по умолчанию
+        default_coords = f"{self.state.x_start},{self.state.y_start},{self.state.x_end},{self.state.y_end}"
+        self.coordinates_entry.delete(0, tk.END)
+        self.coordinates_entry.insert(0, default_coords)
+
+
+        # Настройка логирования
+        self._setup_logging()
+
+        # Инициализация автоОбновления
+        self.updater = AutoUpdater(self.root)
+
+    def _create_top_toolbar(self):
+        frame_top = ttk.Frame(self.root, style="Toolbar.TFrame")
+        frame_top.pack(side=tk.TOP, fill="x")
+        frame_top.grid_columnconfigure(2, weight=1)
+
+        btn_select_pdf = ttk.Button(frame_top, text="Выбрать PDF", command=self.select_pdf)
+        btn_load_registry = ttk.Button(frame_top, text="Выбрать XLS", command=self.load_registry)
+        self.entry_pdf_path = ttk.Entry(frame_top)
+        btn_recognize = ttk.Button(frame_top, text="Запуск распознавания", command=self.start_recognition_thread)
+        btn_match = ttk.Button(frame_top, text="Сопоставить", command=self.match_with_expected)
+        btn_save = ttk.Button(frame_top, text="Сохранить результаты", command=lambda: self.save_results(btn_save))
+
+        btn_select_pdf.grid(row=0, column=0, padx=6, pady=8, sticky="w")
+        btn_load_registry.grid(row=0, column=1, padx=6, pady=8, sticky="w")
+        self.entry_pdf_path.grid(row=0, column=2, padx=6, pady=8, sticky="we")
+        btn_recognize.grid(row=0, column=3, padx=6, pady=8, sticky="e")
+        btn_match.grid(row=0, column=4, padx=6, pady=8, sticky="e")
+        btn_save.grid(row=0, column=5, padx=6, pady=8, sticky="e")
+
+        ttk.Separator(self.root, orient="horizontal").pack(side=tk.TOP, fill="x")
+
+    def _create_main_toolbar(self):
+        frame_main = ttk.Frame(self.root)
+        frame_main.pack(pady=6, padx=10, fill="x")
+
+        frame_left = ttk.Frame(frame_main)
+        frame_left.pack(side=tk.LEFT, fill="x", expand=False)
+
+        button_width = 16
+        btn_prev = ttk.Button(frame_left, text="← Назад", command=self.prev_page, width=button_width)
+        btn_next = ttk.Button(frame_left, text="Вперед →", command=self.next_page, width=button_width)
+        btn_check = ttk.Button(frame_left, text="Проверить лист", command=self.check_image, width=button_width)
+        btn_save_page = ttk.Button(frame_left, text="Сохранить лист", command=self.save_current_page,
+                                   width=button_width)
+
+        btn_prev.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_next.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_check.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_save_page.pack(side=tk.LEFT, padx=4, pady=2)
+
+        ttk.Separator(frame_main, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+
+        # Сохраняем ссылку на frame_main для позиционирования
+        self.frame_main = frame_main
+
+        self.extra_mode = tk.BooleanVar(value=False)
+        options_btn = ttk.Checkbutton(
+            frame_left,
+            text="Options",
+            variable=self.extra_mode,
+            command=self.toggle_extra_options
+        )
+        options_btn.pack(side=tk.LEFT, padx=6)
+
+    def _create_canvas_area(self):
+        """Создание области с холстами и таблицей"""
+        self.frame_canvases = ttk.Frame(self.root)
+        self.frame_canvases.pack(pady=10, padx=10, fill="both", expand=True)
+
+        # Создание компонента canvas
+        self.components['canvas'] = CanvasComponent(self.frame_canvases, self.app)
+        self.components['canvas'].create_canvases()
+
+        ttk.Separator(self.frame_canvases, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+
+        # Создание компонента таблицы
+        self.components['table'] = TableComponent(self.frame_canvases, self.app)
+        self.tree = self.components['table'].create_table()
+
+        # Добавляем привязку клавиш навигации
+        self.components['table'].bind_navigation_keys()
+
+        # Добавляем ссылку на tree в состояние для доступа из сервисов
+        self.state.tree = self.tree
+        self.state.gui = self
+
+    def _create_log_area(self):
+        self.text_output = scrolledtext.ScrolledText(self.root, height=8)
+        self.text_output.pack(side=tk.BOTTOM, fill="x", pady=8, padx=10)
+        self.text_output.config(state="normal")
+
+    def _create_statusbar(self):
+        self.components['status'] = StatusBar(self.root, self.app)
+        self.components['status'].create_statusbar()
+
+    def _setup_logging(self):
+        sys.stdout = TextRedirector(self.text_output)
+        self.text_output.tag_configure("hyperlink", foreground="blue", underline=True)
+        logger.update_gui_handler(self.text_output)
+
+    def run(self):
+        self.root.mainloop()
+
+    def select_pdf(self):
+        try:
+            file_paths = filedialog.askopenfilenames(
+                title="Выберите PDF файлы",
+                filetypes=[("PDF файлы", "*.pdf"), ("Все файлы", "*.*")]
+            )
+
+            if not file_paths:
+                return
+
+            if len(file_paths) == 1:
+                # Один файл
+                file_path = file_paths[0]
+                success = self.app.pdf_service.load_pdf(file_path)
+                if success:
+                    self.entry_pdf_path.delete(0, tk.END)
+                    self.entry_pdf_path.insert(0, file_path)
+
+                    # Загружаем и отображаем страницу
+                    if self.app.pdf_service.load_page() and self.app.pdf_service.create_display_image():
+                        self.components['canvas'].display_image()
+                        self._build_table_from_pdf()
+                        self.components['status'].update_status(
+                            page=1,
+                            total=self.state.total_pages,
+                            msg=f"Загружен PDF: {Path(file_path).name}"
+                        )
+                    else:
+                        messagebox.showerror("Ошибка", "Не удалось загрузить страницу PDF")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось загрузить PDF файл")
+
+            else:
+                # Несколько файлов
+                success = self.app.pdf_service.process_multiple_pdfs(file_paths)
+                if success:
+                    self.entry_pdf_path.delete(0, tk.END)
+                    file_names = [Path(f).name for f in file_paths[:3]]
+                    display_text = f"{', '.join(file_names)}"
+                    if len(file_paths) > 3:
+                        display_text += f" ... (+{len(file_paths) - 3} файлов)"
+                    self.entry_pdf_path.insert(0, display_text)
+
+                    # Загружаем и отображаем страницу
+                    if self.app.pdf_service.load_page() and self.app.pdf_service.create_display_image():
+                        self.components['canvas'].display_image()
+                        self._build_table_from_pdf()
+                        self.components['status'].update_status(
+                            page=1,
+                            total=self.state.total_pages,
+                            msg=f"Загружено {len(file_paths)} PDF файлов"
+                        )
+                    else:
+                        messagebox.showerror("Ошибка", "Не удалось загрузить страницу PDF")
+                else:
+                    messagebox.showerror("Ошибка", "Не удалось обработать PDF файлы")
+
+        except Exception as e:
+            logger.error(f"Ошибка при выборе PDF: {e}")
+            messagebox.showerror("Ошибка", f"Ошибка при выборе PDF: {e}")
+
+    def _build_table_from_pdf(self):
+        """Построение таблицы на основе загруженного PDF"""
+        if not self.state.pdf_doc:
+            return
+
+        # Очищаем таблицу
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self.state.table_entries = []
+
+        # Создаем строки по количеству страниц
+        for i in range(self.state.pdf_doc.page_count):
+            item_id = self.tree.insert(
+                "",
+                tk.END,
+                values=(
+                    i + 1,  # № страницы
+                    "",  # Контейнер из XLS
+                    "",  # invoice (накладная из XLS)
+                    "",  # Распознанный контейнер
+                    "",  # Совпадение
+                    "",  # Коэффициент
+                ),
+            )
+            self.state.table_entries.append({
+                "index": i + 1,
+                "item_id": item_id,
+                "code": "",
+                "recognized": "",
+                "xls_id": ""
+            })
+
+        logger.info(f"Построена таблица для {self.state.pdf_doc.page_count} страниц")
+
+    def load_registry(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Excel or CSV", "*.xlsx *.csv")])
+        if file_path:
+            self.app.excel_service.load_registry(file_path)
+
+    def start_recognition_thread(self):
+        threading.Thread(target=self.start_recognition, daemon=True).start()
+
+    def match_with_expected(self):
+        self.app.matching_service.match_with_expected(self.tree)
+
+    def save_results(self, btn):
+        btn.config(state=tk.DISABLED)
+        threading.Thread(target=self._save_results_worker, args=(btn,), daemon=True).start()
+
+    def _save_results_worker(self, btn):
+        """Рабочий процесс сохранения всех результатов с окном прогресса."""
+        try:
+            # Быстрые проверки — все UI-действия только через after
+            if not self.state.pdf_doc:
+                self.root.after(0, lambda: messagebox.showerror("Ошибка", "PDF документ не загружен"))
+                self.root.after(0, lambda: btn.config(state=tk.NORMAL))
+                return
+
+            if not self.state.table_entries:
+                self.root.after(0, lambda: messagebox.showerror("Ошибка", "Нет данных для сохранения"))
+                self.root.after(0, lambda: btn.config(state=tk.NORMAL))
+                return
+
+            # Данные прогресса/окна
+            ui = {"win": None, "bar": None, "var": None, "lab": None}
+
+            def _open_progress():
+                # Создаём окно прогресса в главном потоке
+                progress = tk.Toplevel(self.root)
+                progress.title("Сохранение...")
+                progress.resizable(False, False)
+                w, h = 360, 120
+                try:
+                    self.root.update_idletasks()
+                    x = self.root.winfo_x() + (self.root.winfo_width() - w) // 2
+                    y = self.root.winfo_y() + (self.root.winfo_height() - h) // 2
+                    progress.geometry(f"{w}x{h}+{x}+{y}")
+                except Exception:
+                    progress.geometry(f"{w}x{h}")
+
+                progress.transient(self.root)
+
+                ttk.Label(progress, text="Идёт сохранение результатов").pack(pady=(14, 6))
+
+                ui["var"] = tk.DoubleVar(value=0.0)
+                bar = ttk.Progressbar(progress, mode="determinate", maximum=100.0, variable=ui["var"])
+                bar.pack(fill="x", padx=18)
+                ui["bar"] = bar
+
+                ui["lab"] = tk.StringVar(value="")
+                ttk.Label(progress, textvariable=ui["lab"]).pack(pady=(6, 10))
+
+                ui["win"] = progress
+
+            def _update_progress(percent: float, text: str):
+                if ui.get("var") is not None:
+                    ui["var"].set(percent)
+                if ui.get("lab") is not None:
+                    ui["lab"].set(text)
+
+            def _close_progress_ok(output_dir: Path):
+                try:
+                    if ui.get("win"):
+                        ui["win"].destroy()
+                finally:
+                    messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+                    btn.config(state=tk.NORMAL)
+
+            def _close_progress_err(msg: str):
+                try:
+                    if ui.get("win"):
+                        ui["win"].destroy()
+                finally:
+                    messagebox.showerror("Ошибка", msg)
+                    btn.config(state=tk.NORMAL)
+
+            # Открываем окно прогресса
+            self.root.after(0, _open_progress)
+
+            # Куда сохраняем: рядом с текущим (возможно объединённым) PDF
+            output_dir = Path(self.state.pdf_path).parent
+
+            total = len(self.state.table_entries)
+            for i, entry in enumerate(self.state.table_entries):
+                try:
+                    page_num = entry["index"] - 1
+                    page = self.state.pdf_doc.load_page(page_num)
+                    pix = page.get_pixmap(dpi=200)
+                    page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+                    # --- Имя: match -> recognized -> page_{i+1}
+                    row_values = list(self.tree.item(entry["item_id"], "values"))
+
+                    # match из таблицы (колонка 4 — "Контейнер распознанный" у вас ранее была на #4)
+                    match_cell = (row_values[4] if len(row_values) > 4 and row_values[4] else "").strip()
+
+                    # recognized: сперва из entry (если есть), иначе из таблицы (обычно колонка 3)
+                    recognized_cell_in_table = (row_values[3] if len(row_values) > 3 and row_values[3] else "").strip()
+                    recognized = (entry.get("recognized") or recognized_cell_in_table or "").strip()
+
+                    basename = match_cell or recognized or f"page_{i + 1}"
+
+                    # --- Ищем накладную по expected == (match|recognized)
+                    invoice_prefix = ""
+                    search_key = (match_cell or recognized).strip()
+                    if search_key:
+                        for e in self.state.table_entries:
+                            vals = list(self.tree.item(e["item_id"], "values"))
+                            expected_val = (vals[1] if len(vals) > 1 and vals[1] else "").strip()
+                            if expected_val == search_key:
+                                invoice_prefix = (e.get("xls_id") or (vals[2] if len(vals) > 2 else "") or "").strip()
+                                if invoice_prefix:
+                                    break
+
+                    # --- Итоговое имя
+                    filename = f"{invoice_prefix}_{basename}" if invoice_prefix else basename
+                    output_file = output_dir / filename
+
+                    # Сохраняем основное изображение
+                    page_image.save(f"{output_file}.jpg")
+
+                    # Debug-дампы: кроп и _info.txt
+                    if self.state.debug_mode:
+                        # возможный кроп из текущей сессии
+                        cropped = getattr(self.state, "cropped_image", None)
+                        if cropped is not None:
+                            try:
+                                cropped.save(f"{output_file}_cropped.jpg")
+                            except Exception as e_crop:
+                                logger.error(f"Не удалось сохранить вырезку: {e_crop}", exc_info=True)
+
+                        # _info.txt при наличии результата распознавания
+                        if i < len(self.state.recognition_results):
+                            try:
+                                result = self.state.recognition_results[i]
+                                info_path = Path(f"{output_file}_info.txt")
+                                with info_path.open("w", encoding="utf-8") as f:
+                                    f.write(f"Страница: {result.get('page')}\n")
+                                    f.write(f"Координаты: {result.get('coords')}\n")
+                                    f.write(f"Движок OCR: {result.get('engine')}\n")
+                                    f.write("\n--- Исходный текст ---\n")
+                                    f.write(result.get('raw_text', ""))
+                                    f.write("\n\n--- Форматированный текст ---\n")
+                                    f.write(result.get('formatted_text', ""))
+                            except Exception as e_info:
+                                logger.error(f"Не удалось сохранить _info.txt: {e_info}", exc_info=True)
+
+                except Exception as page_err:
+                    logger.error(f"Не удалось сохранить страницу {i + 1}: {page_err}", exc_info=True)
+
+                # Обновление прогресса (в главном потоке)
+                percent = ((i + 1) / max(1, total)) * 100.0
+                text = f"{i + 1} из {total}"
+                self.root.after(0, _update_progress, percent, text)
+
+            # Закрываем окно прогресса — успех
+            self.root.after(0, lambda d=output_dir: _close_progress_ok(d))
+
+        except Exception as e:
+            logger.error(f"Ошибка сохранения: {e}", exc_info=True)
+            # Закрываем окно прогресса — ошибка
+            self.root.after(0, lambda: _close_progress_err(f"Ошибка при сохранении: {e!s}"))
+
+    def _save_results_completed(self, btn, output_dir):
+        """Завершение сохранения результатов"""
+        btn.config(state=tk.NORMAL)
+        messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+
+    def _save_results_failed(self, btn, error):
+        """Ошибка сохранения результатов"""
+        btn.config(state=tk.NORMAL)
+        messagebox.showerror("Ошибка", f"Ошибка при сохранении: {error}")
+
+    def check_image(self):
+        """Проверка распознавания на текущей странице"""
+        if not self.state.pdf_doc:
+            messagebox.showwarning("Нет файла", "Пожалуйста, выберите PDF-файл.")
+            return
+
+        # Если нет выделенной области, но есть координаты
+        if (not self.state.selected_areas and
+                all(v is not None for v in
+                    [self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end])):
+            self.state.selected_areas = [
+                (None, self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end)]
+            self.components['canvas'].draw_selection()
+
+        if not self.state.selected_areas:
+            messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
+            return
+
+        try:
+            area = self.state.selected_areas[0]
+            _, x1, y1, x2, y2 = area
+            coords = (x1, y1, x2, y2)
+
+            recognized_text = self.app.ocr_service.recognize_area(self.state.current_page, coords)
+
+            # Обновляем таблицу
+            if self.state.current_page < len(self.state.table_entries):
+                self.state.table_entries[self.state.current_page]["recognized"] = recognized_text
+                item_id = self.state.table_entries[self.state.current_page]["item_id"]
+                current_values = list(self.tree.item(item_id, "values"))
+                current_values[3] = recognized_text
+                self.tree.item(item_id, values=current_values)
+
+            # Выводим в лог
+            if self.state.current_page < len(self.state.recognition_results):
+                result = self.state.recognition_results[self.state.current_page]
+                logger.info(f"=== Страница {self.state.current_page + 1} ===")
+                logger.info(f"Координаты: {result['coords']}")
+                logger.info(f"Движок: {result['engine']}")
+                logger.info("\n--- Исходный текст ---")
+                logger.info(result["raw_text"])
+                logger.info("\n--- Форматированный текст ---")
+                logger.info(result["formatted_text"])
+
+            messagebox.showinfo("Успех", f"Страница {self.state.current_page + 1} распознана: {recognized_text}")
+
+        except Exception as e:
+            logger.error(f"Ошибка при распознавании страницы {self.state.current_page + 1}: {e}")
+            messagebox.showerror("Ошибка", f"Ошибка при распознавании: {e}")
+
+    def save_current_page(self):
+        """Сохранение текущей страницы как изображения"""
+        if not self.state.pdf_path:
+            messagebox.showerror("Ошибка", "Не выбран PDF файл.")
+            return
+
+        try:
+            page = self.state.pdf_doc.load_page(self.state.current_page)
+            pix = page.get_pixmap(dpi=200)
+            page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+
+            # Получаем данные для имени файла
+            row_values = list(self.tree.item(
+                self.state.table_entries[self.state.current_page]["item_id"], "values"
+            ))
+
+            match_cell = (row_values[4] if len(row_values) > 4 and row_values[4] else "").strip()
+            recognized = (self.state.table_entries[self.state.current_page].get("recognized") or "").strip()
+            basename = match_cell or recognized or f"page_{self.state.current_page + 1}"
+
+            # Ищем накладную
+            invoice_prefix = ""
+            search_key = (match_cell or recognized).strip()
+            if search_key:
+                for entry in self.state.table_entries:
+                    vals = list(self.tree.item(entry["item_id"], "values"))
+                    expected_val = (vals[1] if len(vals) > 1 and vals[1] else "").strip()
+                    if expected_val == search_key:
+                        invoice_prefix = (entry.get("xls_id") or (vals[2] if len(vals) > 2 else "") or "").strip()
+                        if invoice_prefix:
+                            break
+
+            # Формируем имя файла
+            filename = f"{invoice_prefix}_{basename}" if invoice_prefix else basename
+            output_dir = Path(self.state.pdf_path).parent
+            output_file = output_dir / f"{self.state.current_page + 1}_{filename}"
+
+            # Сохраняем
+            page_image.save(f"{output_file}_full.jpg")
+
+            if self.state.debug_mode and self.state.cropped_image:
+                try:
+                    self.state.cropped_image.save(f"{output_file}_cropped.jpg")
+                except Exception as e:
+                    logger.debug(f"Не удалось сохранить обрезанное изображение: {e}")
+
+            messagebox.showinfo("Успех", f"Страница сохранена как {output_file}_full.jpg")
+
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении страницы: {e}")
+            messagebox.showerror("Ошибка", f"Не удалось сохранить страницу: {e}")
+
+
+
+    def update_debug_mode(self):
+        dbg = bool(self.debug_mode.get())
+        logger.info(f"Debug mode: {dbg}")
+        # Дополнительная логика обновления интерфейса
+
+    def toggle_theme(self):
+        toggle_theme(self.root)
+
+    def init_ocr_engine(self):
+        selected_engine = self.ocr_engine_var.get()
+        # Реализация инициализации OCR движка
+
+    def update_coordinates(self, event=None):
+        """Обновление координат из поля ввода"""
+        try:
+            coordinates = self.coordinates_entry.get().split(",")
+            if len(coordinates) == 4:
+                self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end = map(int, coordinates)
+                logger.info(
+                    f"Обновлены координаты: {self.state.x_start}, {self.state.y_start}, {self.state.x_end}, {self.state.y_end}")
+
+                # Обновляем выделение на canvas
+                self.components['canvas'].draw_selection()
+
+                # Обновляем выбранные области
+                self.state.selected_areas.clear()
+                self.state.selected_areas.append((
+                    self.state.rect_id,
+                    self.state.x_start,
+                    self.state.y_start,
+                    self.state.x_end,
+                    self.state.y_end
+                ))
+            else:
+                logger.warning("Неверный формат координат. Нужно: x1,y1,x2,y2")
+        except ValueError as e:
+            logger.warning(f"Ошибка формата координат: {e}")
+
+    def on_closing(self):
+        # Обработчик закрытия окна
+        self.root.destroy()
+
+    def start_recognition(self):
+        """Запуск распознавания всех страниц"""
+        if not self.state.pdf_doc:
+            messagebox.showwarning("Нет документа", "Пожалуйста, выберите PDF-файл.")
+            return
+
+        # Если нет выделенной области, но есть координаты
+        if (not self.state.selected_areas and
+                all(v is not None for v in
+                    [self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end])):
+            self.state.selected_areas = [
+                (None, self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end)]
+            self.components['canvas'].draw_selection()
+
+        if not self.state.selected_areas:
+            messagebox.showwarning("Нет выделения", "Пожалуйста, выделите область на холсте.")
+            return
+
+        try:
+            # Показываем диалог прогресса
+            progress_window = tk.Toplevel(self.root)
+            progress_window.title("Распознавание...")
+            progress_window.geometry("300x100")
+            progress_window.resizable(False, False)
+            progress_window.transient(self.root)
+            progress_window.grab_set()
+
+            # Центрируем окно
+            progress_window.update_idletasks()
+            x = self.root.winfo_x() + (self.root.winfo_width() - progress_window.winfo_width()) // 2
+            y = self.root.winfo_y() + (self.root.winfo_height() - progress_window.winfo_height()) // 2
+            progress_window.geometry(f"+{x}+{y}")
+
+            tk.Label(progress_window, text="Идет распознавание страниц...").pack(pady=10)
+            progress_var = tk.DoubleVar()
+            progress_bar = ttk.Progressbar(progress_window, variable=progress_var, maximum=100, length=250)
+            progress_bar.pack(pady=5)
+            progress_bar.start()
+
+            # Запускаем в отдельном потоке
+            threading.Thread(
+                target=self._recognition_worker,
+                args=(progress_var, progress_window),
+                daemon=True
+            ).start()
+
+        except Exception as e:
+            logger.error(f"Ошибка при запуске распознавания: {e}")
+            messagebox.showerror("Ошибка", f"Ошибка при запуске распознавания: {e}")
+
+    def _recognition_worker(self, progress_var, progress_window):
+        """Рабочий процесс распознавания"""
+        try:
+            area = self.state.selected_areas[0]
+            _, x1, y1, x2, y2 = area
+            coords = (x1, y1, x2, y2)
+
+            total_pages = self.state.pdf_doc.page_count
+
+            for page_num in range(total_pages):
+                # Обновляем прогресс
+                progress = (page_num / total_pages) * 100
+                self.root.after(0, lambda p=progress: progress_var.set(p))
+
+                # Распознаем страницу
+                recognized_text = self.app.ocr_service.recognize_area(page_num, coords)
+
+                # Обновляем таблицу в основном потоке
+                self.root.after(0, self._update_table_row, page_num, recognized_text)
+
+            # Завершаем
+            self.root.after(0, lambda: self._recognition_completed(progress_window, total_pages))
+
+        except Exception as e:
+            logger.error(f"Ошибка в процессе распознавания: {e}")
+            self.root.after(0, lambda: self._recognition_failed(progress_window, e))
+
+    def _update_table_row(self, page_num, recognized_text):
+        """Обновление строки таблицы"""
+        if page_num < len(self.state.table_entries):
+            self.state.table_entries[page_num]["recognized"] = recognized_text
+            item_id = self.state.table_entries[page_num]["item_id"]
+            current_values = list(self.tree.item(item_id, "values"))
+            current_values[3] = recognized_text  # recognized column
+            self.tree.item(item_id, values=current_values)
+
+    def _recognition_completed(self, progress_window, total_pages):
+        """Завершение распознавания"""
+        progress_window.destroy()
+        messagebox.showinfo("Готово", f"Распознано {total_pages} страниц.")
+        logger.info(f"Массовое распознавание завершено: {total_pages} страниц")
+
+    def _recognition_failed(self, progress_window, error):
+        """Ошибка распознавания"""
+        progress_window.destroy()
+        messagebox.showerror("Ошибка", f"Ошибка при распознавании: {error}")
+
+    def _create_extra_toolbar(self):
+        """Создание дополнительной панели настроек"""
+        self.frame_extra = ttk.Frame(self.root)
+        # Изначально не показываем - будет показана при включении Options
+
+        # Содержимое дополнительной панели
+        frame_left_extra = ttk.Frame(self.frame_extra)
+        frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
+
+        self.recognition_mode = tk.IntVar(value=0)
+        self.debug_mode = tk.BooleanVar(value=False)
+
+        adv_checkbutton = ttk.Checkbutton(
+            frame_left_extra,
+            text="Advance",
+            variable=self.recognition_mode,
+            command=self._update_recognition_mode
+        )
+        debug_checkbutton = ttk.Checkbutton(
+            frame_left_extra,
+            text="Debug",
+            variable=self.debug_mode,
+            command=self._update_debug_mode
+        )
+        adv_checkbutton.pack(side=tk.LEFT, padx=4)
+        debug_checkbutton.pack(side=tk.LEFT, padx=4)
+
+        btn_theme = ttk.Button(frame_left_extra, text="Тема", command=self._toggle_theme)
+        btn_theme.pack(side=tk.LEFT, padx=6)
+
+        ttk.Separator(self.frame_extra, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+
+        frame_center = ttk.Frame(self.frame_extra)
+        frame_center.pack(side=tk.LEFT, fill="x", expand=True)
+
+        ocr_container = ttk.Frame(frame_center)
+        ocr_container.pack(fill="x", expand=True)
+
+        ttk.Label(ocr_container, text="OCR движок:").pack(side=tk.LEFT, padx=4)
+        self.ocr_engine_var = tk.StringVar(value="Tesseract")
+        ocr_options = ["Tesseract", "EasyOCR", "PaddleOCR"]
+        ocr_menu = ttk.Combobox(
+            ocr_container,
+            textvariable=self.ocr_engine_var,
+            values=ocr_options,
+            state="readonly",
+            width=16
+        )
+        ocr_menu.pack(side=tk.LEFT, padx=4)
+
+        ttk.Button(
+            ocr_container,
+            text="Инициализировать",
+            command=self._init_ocr_engine
+        ).pack(side=tk.LEFT, padx=4)
+
+        ttk.Separator(self.frame_extra, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+
+        frame_right = ttk.Frame(self.frame_extra)
+        frame_right.pack(side=tk.RIGHT, fill="x", expand=False)
+
+        ttk.Label(frame_right, text="Шаблон:").pack(side=tk.LEFT, padx=4)
+        self.regex_pattern_entry = ttk.Entry(frame_right, width=28)
+        self.regex_pattern_entry.pack(side=tk.LEFT, padx=4)
+        self.regex_pattern_entry.insert(0, self.state.regex_pattern)
+
+        ttk.Label(frame_right, text="Координаты:").pack(side=tk.LEFT, padx=4)
+        self.coordinates_entry = ttk.Entry(frame_right, width=22)
+        self.coordinates_entry.pack(side=tk.LEFT, padx=4)
+
+        # Устанавливаем начальные координаты
+        default_coords = f"{self.state.x_start},{self.state.y_start},{self.state.x_end},{self.state.y_end}"
+        self.coordinates_entry.delete(0, tk.END)
+        self.coordinates_entry.insert(0, default_coords)
+        self.coordinates_entry.bind("<KeyRelease>", self._update_coordinates)
+
+    def toggle_extra_options(self):
+        """Переключение видимости дополнительной панели"""
+        if self.extra_mode.get():
+            # Показываем панель
+            if not self.frame_extra.winfo_ismapped():
+                self.frame_extra.pack(fill="x", padx=10, pady=5, before=self.frame_canvases)
+        else:
+            # Скрываем панель
+            if self.frame_extra.winfo_ismapped():
+                self.frame_extra.pack_forget()
+
+    def _update_recognition_mode(self):
+        """Обновление режима распознавания"""
+        self.state.recognition_mode = self.recognition_mode.get()
+        mode_text = "Advance" if self.state.recognition_mode == 1 else "Basic"
+        logger.info(f"Режим распознавания изменен на: {mode_text}")
+
+    def _update_debug_mode(self):
+        """Обновление режима отладки"""
+        self.state.debug_mode = self.debug_mode.get()
+        logger.info(f"Режим отладки: {self.state.debug_mode}")
+
+        # Обновляем уровень логирования
+        import logging
+        if self.state.debug_mode:
+            logger.logger.setLevel(logging.DEBUG)
+            logger.info("Уровень логов переключен на DEBUG")
+
+            # Показываем скрытые колонки
+            self.tree.column("expected", width=170, minwidth=50, stretch=tk.YES)
+            self.tree.heading("expected", text="Контейнер из XLS")
+            self.tree.column("invoice", width=140, minwidth=50, stretch=tk.YES)
+            self.tree.heading("invoice", text="Накладная из XLS")
+        else:
+            logger.logger.setLevel(logging.INFO)
+            logger.info("Уровень логов переключен на INFO")
+
+            # Скрываем колонки
+            self.tree.column("expected", width=0, minwidth=0, stretch=tk.NO)
+            self.tree.heading("expected", text="")
+            self.tree.column("invoice", width=0, minwidth=0, stretch=tk.NO)
+            self.tree.heading("invoice", text="")
+
+        # Обновляем GUI хендлер
+        logger.update_gui_handler(self.text_output)
+
+    def _toggle_theme(self):
+        """Переключение темы"""
+        from gui.themes import toggle_theme
+        toggle_theme(self.root)
+        self.state.current_theme = "dark" if self.state.current_theme == "light" else "light"
+
+    def _init_ocr_engine(self):
+        """Инициализация OCR движка"""
+        selected_engine = self.ocr_engine_var.get()
+        self.state.ocr_engine = selected_engine
+        logger.info(f"Выбран OCR движок: {selected_engine}")
+        messagebox.showinfo("Инфо", f"OCR движок установлен: {selected_engine}")
+
+    def _update_coordinates(self, event=None):
+        """Обновление координат из поля ввода"""
+        try:
+            coordinates_text = self.coordinates_entry.get()
+            if coordinates_text:
+                coords = coordinates_text.split(",")
+                if len(coords) == 4:
+                    self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end = map(int, coords)
+                    logger.info(
+                        f"Координаты обновлены: {self.state.x_start}, {self.state.y_start}, {self.state.x_end}, {self.state.y_end}")
+
+                    # Обновляем выделение на canvas
+                    self.components['canvas'].draw_selection()
+
+                    # Обновляем выбранные области
+                    self.state.selected_areas.clear()
+                    self.state.selected_areas.append((
+                        self.state.rect_id,
+                        self.state.x_start,
+                        self.state.y_start,
+                        self.state.x_end,
+                        self.state.y_end
+                    ))
+        except ValueError as e:
+            logger.warning(f"Ошибка формата координат: {e}")
+
+    def on_page_changed(self, page_num):
+        """Обработчик изменения текущей страницы"""
+        try:
+            # Обновляем выделение в таблице
+            self._update_table_selection(page_num)
+
+            # Обновляем статус
+            self.components['status'].update_status(
+                page=page_num + 1,
+                total=self.state.total_pages,
+                msg=f"Страница {page_num + 1}"
+            )
+
+            logger.debug(f"Страница изменена на: {page_num + 1}")
+
+        except Exception as e:
+            logger.error(f"Ошибка в обработчике изменения страницы: {e}")

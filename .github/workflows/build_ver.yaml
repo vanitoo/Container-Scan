@@ -56,7 +56,7 @@ jobs:
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
-          pyinstaller --onefile --noconsole --clean --hidden-import=_ssl --collect-all=certifi main.py
+          pyinstaller --onefile --noconsole --clean --name main --hidden-import=_ssl --collect-all=certifi app.py
 
         # Пояснение:
         # --hidden-import=_ssl   → страхуем явное включение SSL-модуля
