@@ -1,4 +1,9 @@
 Changelog
+## [unreleased]
+
+### ⚙️ Miscellaneous Tasks
+
+- Update CHANGELOG.md [skip ci]
 ## [1.4.8] - 2025-11-03
 
 ### ⚙️ Miscellaneous Tasks
