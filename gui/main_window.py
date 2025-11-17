@@ -130,6 +130,7 @@ class MainWindow:
 
     def create_interface(self):
         self.root = tk.Tk()
+        self.root.withdraw()  # <- спрятали окно на время инициализации
         self.root.title(f"Распознавание текста из PDF - Текущая версия программы: {self.app.version}")
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -151,6 +152,8 @@ class MainWindow:
         self._create_canvas_area()
         self._create_log_area()
         self._create_statusbar()
+
+        self.root.deiconify()
 
         # Инициализация координат по умолчанию
         default_coords = f"{self.state.x_start},{self.state.y_start},{self.state.x_end},{self.state.y_end}"
