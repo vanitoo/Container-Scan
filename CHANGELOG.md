@@ -4,6 +4,11 @@ Changelog
 ### ⚙️ Miscellaneous Tasks
 
 - Update CHANGELOG.md [skip ci]
+## [2.0.1] - 2025-11-07
+
+### ⚙️ Miscellaneous Tasks
+
+- Update CHANGELOG.md [skip ci]
 ## [1.4.8] - 2025-11-03
 
 ### ⚙️ Miscellaneous Tasks
