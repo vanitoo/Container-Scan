@@ -1,17 +1,19 @@
 # app.py
 from __future__ import annotations
+
 import os
+
 from dotenv import load_dotenv, set_key
 
-from version import __version__
+from config import DEFAULT_COORDINATES, ENV_FILE
 from models.state import AppState
-from services.pdf_service import PDFService
-from services.ocr_service import OCRService
 from services.excel_service import ExcelService
 from services.matching_service import MatchingService
+from services.ocr_service import OCRService
+from services.pdf_service import PDFService
 from utils.logger import logger
 from gui.main_window import MainWindow
-from config import ENV_FILE, DEFAULT_COORDINATES
+from version import __version__
 
 
 class PDFOCRApp:
@@ -83,6 +85,8 @@ class PDFOCRApp:
             )
 
             logger.info("Запуск приложения...")
+            logger.info(f"Версия приложения: {self.version}")
+            self.ocr_service.check_tesseract()
             self.gui.create_interface()
             self.root = self.gui.root
 
@@ -97,9 +101,9 @@ class PDFOCRApp:
             try:
                 import tkinter.messagebox as messagebox
                 messagebox.showerror("Ошибка запуска", f"Не удалось запустить приложение:\n{e}")
-            except:
-                print(f"Критическая ошибка: {e}")
-            raise
+        except Exception:
+            print(f"Критическая ошибка: {e}")
+        raise
 
     def _check_for_updates(self):
         """Проверка обновлений"""

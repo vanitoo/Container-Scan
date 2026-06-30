@@ -3,12 +3,16 @@ Changelog
 
 ### 🚜 Refactor
 
+- Add startup Tesseract check and version logging
+- Cleanup gui components imports and stale comments
+- Cleanup main window imports and stale comments
 - Cleanup stale excel registry loader
 - Cleanup app state comments
 - Cleanup pdf service imports and stale comments
 
 ### 📚 Documentation
 
+- Document remaining ruff issues
 - Document current architecture and refactor plan
 - Add Codex refactor plan
 

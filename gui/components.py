@@ -1,10 +1,9 @@
 # gui/components.py
 from __future__ import annotations
 
-import logging
 import tkinter as tk
-from tkinter import ttk, scrolledtext
-import webbrowser
+from tkinter import ttk
+
 from PIL import Image, ImageTk
 
 from config import CANVAS_SIZE, DOUBLE_CLICK_DELAY
@@ -31,7 +30,6 @@ class CanvasComponent:
         self.canvas = None
         self.canvas2 = None
 
-    # gui/components.py (добавляем в класс CanvasComponent)
     def display_image(self):
         """Отображение текущего изображения на canvas"""
         if self.state.image_display and self.canvas:
@@ -268,7 +266,9 @@ class CanvasComponent:
 
             # Логируем исходные координаты и масштаб
             logger.debug(
-                f"Исходные координаты: ({self.state.x_start}, {self.state.y_start}) - ({self.state.x_end}, {self.state.y_end})")
+                f"Исходные координаты: ({self.state.x_start}, {self.state.y_start}) - "
+                f"({self.state.x_end}, {self.state.y_end})"
+            )
             logger.debug(f"Текущий scale_factor: {self.state.scale_factor}")
 
             # Вырезаем область с оригинальными координатами (без учета текущего масштаба)
@@ -304,7 +304,7 @@ class CanvasComponent:
                 logger.debug(f"Координаты после проверки границ: ({x1}, {y1}) - ({x2}, {y2})")
 
                 if x2 <= x1 or y2 <= y1:
-                    logger.error(f"Координаты вышли за границы после нормализации")
+                    logger.error("Координаты вышли за границы после нормализации")
                     return
 
                 self.state.cropped_image = self.state.original_page_image.crop((x1, y1, x2, y2))
@@ -321,7 +321,9 @@ class CanvasComponent:
                 y2_scaled = max(1, min(self.state.y_end, page_height))
 
                 logger.debug(
-                    f"Координаты для масштабированного изображения: ({x1_scaled}, {y1_scaled}) - ({x2_scaled}, {y2_scaled})")
+                    f"Координаты для масштабированного изображения: ({x1_scaled}, {y1_scaled}) - "
+                    f"({x2_scaled}, {y2_scaled})"
+                )
 
                 self.state.cropped_image = self.state.page_image.crop((
                     x1_scaled, y1_scaled,
@@ -518,7 +520,7 @@ class TableComponent:
     def edit_cell(self, item, column):
         """Редактирование ячейки таблицы"""
         expected_containers = []
-        for xls_id, container in self.state.all_excel_records:
+        for _xls_id, container in self.state.all_excel_records:
             if container and container not in expected_containers:
                 expected_containers.append(container)
 
@@ -653,7 +655,6 @@ class TableComponent:
         listbox.bind("<FocusOut>", lambda e: listbox.place_forget())
         update_listbox()
 
-    # gui/components.py (добавляем в класс TableComponent)
     def bind_navigation_keys(self):
         """Привязка клавиш навигации"""
         self.tree.bind("<Up>", self.on_arrow_key)

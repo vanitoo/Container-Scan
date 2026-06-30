@@ -1,33 +1,19 @@
 # gui/main_window.py
 from __future__ import annotations
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
+
 import sys
 import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+
+from PIL import Image
 
 from config import WINDOW_SIZE
-from utils.logger import logger
-from utils.updater import AutoUpdater
+from gui.components import CanvasComponent, StatusBar, TableComponent, TextRedirector
 from gui.themes import apply_minimal_theme, toggle_theme
-from gui.components import CanvasComponent, TableComponent, StatusBar, TextRedirector
-from pathlib import Path
-from pathlib import Path
-import threading
-from PIL import Image
-
-# gui/main_window.py (добавляем в начало файла)
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-import sys
-import threading
-from pathlib import Path
-from PIL import Image
-
-from config import WINDOW_SIZE
 from utils.logger import logger
 from utils.updater import AutoUpdater
-from gui.themes import apply_minimal_theme
-from gui.components import CanvasComponent, TableComponent, StatusBar, TextRedirector
 
 
 class MainWindow:
@@ -37,7 +23,6 @@ class MainWindow:
         self.root = None
         self.components = {}
 
-    # gui/main_window.py (обновляем методы навигации)
     def prev_page(self):
         """Переход к предыдущей странице"""
         if self.app.pdf_service.prev_page() and self.app.pdf_service.create_display_image():
@@ -902,7 +887,6 @@ class MainWindow:
 
     def _toggle_theme(self):
         """Переключение темы"""
-        from gui.themes import toggle_theme
         toggle_theme(self.root)
         self.state.current_theme = "dark" if self.state.current_theme == "light" else "light"
 

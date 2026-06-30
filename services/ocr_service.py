@@ -3,32 +3,58 @@ from __future__ import annotations
 
 import re
 from difflib import SequenceMatcher
+from pathlib import Path
 
 import cv2
 import numpy as np
 import pytesseract
+
 from config import TESSERACT_PATHS
 from models.state import AppState
 from utils.logger import logger
+
+TESSERACT_INSTALL_URL = "https://github.com/UB-Mannheim/tesseract/wiki"
 
 
 class OCRService:
     def __init__(self, state: AppState):
         self.state = state
+        self.tesseract_path: Path | None = None
+        self.tesseract_available = False
         self.set_tesseract_path()
 
-    def set_tesseract_path(self):
-        """Установка пути к Tesseract"""
+    def set_tesseract_path(self) -> bool:
+        """Установка пути к Tesseract."""
         for path in TESSERACT_PATHS:
             if path.exists():
                 pytesseract.pytesseract.tesseract_cmd = str(path)
+                self.tesseract_path = path
+                self.tesseract_available = True
                 logger.debug(f"Путь для Tesseract установлен: {path}")
-                return
+                return True
 
-        logger.info("Tesseract не найден. Пожалуйста, установите его.")
-        logger.info("Ссылка на проект: https://github.com/UB-Mannheim/tesseract/wiki")
+        self.tesseract_path = None
+        self.tesseract_available = False
+        return False
 
-    def recognize_with_engine(self, image, engine: str = None) -> str:
+    def check_tesseract(self) -> bool:
+        """Проверка доступности Tesseract при старте приложения."""
+        if not self.set_tesseract_path():
+            logger.error("Tesseract не найден.")
+            logger.info(f"Установить Tesseract можно здесь: {TESSERACT_INSTALL_URL}")
+            return False
+
+        try:
+            version = pytesseract.get_tesseract_version()
+            logger.info(f"Tesseract доступен: {pytesseract.pytesseract.tesseract_cmd}")
+            logger.info(f"Версия Tesseract: {version}")
+            return True
+        except Exception as e:
+            logger.error(f"Tesseract найден, но не запускается: {e}")
+            logger.info(f"Установить Tesseract можно здесь: {TESSERACT_INSTALL_URL}")
+            return False
+
+    def recognize_with_engine(self, image, engine: str | None = None) -> str:
         """Распознавание текста с использованием выбранного движка"""
         if engine is None:
             engine = self.state.ocr_engine
