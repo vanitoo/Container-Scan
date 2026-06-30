@@ -1,9 +1,12 @@
 # models/state.py
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 import fitz
 from PIL import Image
+
 from config import DEFAULT_COORDINATES
 
 
@@ -14,7 +17,7 @@ class AppState:
     pdf_path: Optional[str] = None
     current_page: int = 0
     total_pages: int = 0
-    is_temp_pdf: bool = False  # этот PDF создан программно (временный) и его можно удалять при выгрузке
+    is_temp_pdf: bool = False
 
     # Изображения
     page_image: Optional[Image.Image] = None
@@ -23,17 +26,13 @@ class AppState:
     cropped_image: Optional[Image.Image] = None
 
     # Координаты и выделение
-    # x_start: int = 20
-    # y_start: int = 298
-    # x_end: int = 92
-    # y_end: int = 345
     x_start: int = field(default_factory=lambda: DEFAULT_COORDINATES["X_START"])
     y_start: int = field(default_factory=lambda: DEFAULT_COORDINATES["Y_START"])
-    x_end:   int = field(default_factory=lambda: DEFAULT_COORDINATES["X_END"])
-    y_end:   int = field(default_factory=lambda: DEFAULT_COORDINATES["Y_END"])
+    x_end: int = field(default_factory=lambda: DEFAULT_COORDINATES["X_END"])
+    y_end: int = field(default_factory=lambda: DEFAULT_COORDINATES["Y_END"])
     rect_id: Any = None
     selected_areas: List = field(default_factory=list)
-    selection_rect_norm: Optional[tuple] = None  # (x1n, y1n, x2n, y2n) в [0..1]
+    selection_rect_norm: Optional[tuple] = None
 
     # Масштабирование
     scale_factor: float = 1.0
@@ -45,6 +44,7 @@ class AppState:
     ocr_engine: str = "Tesseract"
     ocr_reader: Any = None
     recognition_results: List[Dict] = field(default_factory=list)
+    regex_pattern: str = field(default_factory=lambda: DEFAULT_COORDINATES["REGEX_PATTERN"])
 
     # Табличные данные
     table_entries: List[Dict] = field(default_factory=list)
@@ -55,14 +55,12 @@ class AppState:
     current_theme: str = "light"
     debug_mode: bool = False
     extra_mode: bool = False
-    recognition_mode: int = 0  # 0=Basic, 1=Advance
+    recognition_mode: int = 0
 
     # Флаги
     download_cancelled: bool = False
 
-    # models/state.py (добавляем в класс AppState)
-    # regex_pattern: str = r"^[A-Z]{3}U\d{7}$"
-    regex_pattern: str = field(default_factory=lambda: DEFAULT_COORDINATES["REGEX_PATTERN"])
+    # Временные обратные ссылки. Будут убраны на этапе разделения GUI и сервисов.
     pdf_service: Any = None
     ocr_service: Any = None
     gui: Any = None
