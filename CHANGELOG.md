@@ -10,6 +10,7 @@ Changelog
 ### 📚 Documentation
 
 - Document current architecture and refactor plan
+- Add Codex refactor plan
 
 ### ⚙️ Miscellaneous Tasks
 
@@ -27,6 +28,7 @@ Changelog
 - Update CHANGELOG.md [skip ci]
 - Remove stale disabled workflow
 - Remove stale disabled workflow
+- Update CHANGELOG.md [skip ci]
 ## [2.0.1] - 2025-11-07
 
 ### ⚙️ Miscellaneous Tasks
