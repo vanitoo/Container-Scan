@@ -1,9 +1,11 @@
 # services/excel_service.py
 from __future__ import annotations
+
 import csv
 from pathlib import Path
-import openpyxl
 import tkinter.messagebox as messagebox
+
+import openpyxl
 
 from models.state import AppState
 from utils.logger import logger
@@ -13,45 +15,10 @@ class ExcelService:
     def __init__(self, state: AppState):
         self.state = state
 
-    def load_registry2(self, file_path: str) -> bool:
-        """Загрузка данных из Excel или CSV файла"""
-        try:
-            suffix = Path(file_path).suffix.lower()
-            records = []
-
-            if suffix == ".xlsx":
-                records = self._load_excel(file_path)
-            elif suffix == ".csv":
-                records = self._load_csv(file_path)
-            else:
-                messagebox.showerror("Ошибка", f"Неподдерживаемый формат: {suffix}")
-                return False
-
-            self.state.all_excel_records = records
-
-            # Обновление таблицы
-            updated_rows = min(len(records), len(self.state.table_entries))
-            for i in range(updated_rows):
-                xls_id, code = records[i]
-
-                # Обновление служебных полей
-                self.state.table_entries[i]["code"] = code
-                self.state.table_entries[i]["xls_id"] = xls_id
-
-            logger.info(f"Загружено {len(records)} записей из {file_path}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Ошибка при загрузке реестра: {e}")
-            messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
-            return False
-
-    # services/excel_service.py (обновляем метод load_registry)
     def load_registry(self, file_path: str) -> bool:
         """Загрузка данных из Excel или CSV файла"""
         try:
             suffix = Path(file_path).suffix.lower()
-            records = []
 
             if suffix == ".xlsx":
                 records = self._load_excel(file_path)
@@ -62,8 +29,6 @@ class ExcelService:
                 return False
 
             self.state.all_excel_records = records
-
-            # Обновление таблицы
             self._update_table_from_records(records)
 
             logger.info(f"Загружено {len(records)} записей из {file_path}")
@@ -80,11 +45,9 @@ class ExcelService:
         for i in range(updated_rows):
             xls_id, code = records[i]
 
-            # Обновление служебных полей
             self.state.table_entries[i]["code"] = code
             self.state.table_entries[i]["xls_id"] = xls_id
 
-            # Обновление видимой таблицы
             item_id = self.state.table_entries[i]["item_id"]
             current_values = list(self.state.gui.tree.item(item_id, "values"))
 
@@ -92,11 +55,10 @@ class ExcelService:
             while len(current_values) < 6:
                 current_values.append("")
 
-            current_values[1] = code  # Контейнер из XLS (expected)
-            current_values[2] = xls_id  # Накладная (invoice)
+            current_values[1] = code
+            current_values[2] = xls_id
 
             self.state.gui.tree.item(item_id, values=tuple(current_values))
-
 
     def _load_excel(self, file_path: str) -> list:
         """Загрузка данных из Excel файла"""
@@ -134,7 +96,7 @@ class ExcelService:
         with Path(file_path).open(encoding="utf-8") as f:
             reader = csv.reader(f)
             for idx, row in enumerate(reader):
-                if idx < 3:  # Пропуск заголовков
+                if idx < 3:
                     continue
 
                 xls_id = row[2].strip() if len(row) > 2 and row[2] is not None else ""
