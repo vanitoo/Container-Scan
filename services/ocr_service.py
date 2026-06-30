@@ -168,11 +168,10 @@ class OCRService:
                 return ""
 
             if self.state.debug_mode:
-                import os
-                debug_dir = "debug_images"
-                os.makedirs(debug_dir, exist_ok=True)
-                debug_image_path = os.path.join(debug_dir, f"page_{page_index + 1}_debug.jpg")
-                cv2.imwrite(debug_image_path, cropped_image)
+                debug_dir = Path("debug_images")
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                debug_image_path = debug_dir / f"page_{page_index + 1}_debug.jpg"
+                cv2.imwrite(str(debug_image_path), cropped_image)
                 logger.debug(f"Сохранено отладочное изображение: {debug_image_path}")
 
             # Выбор режима распознавания

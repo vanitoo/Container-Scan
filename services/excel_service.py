@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import csv
-from pathlib import Path
 import tkinter.messagebox as messagebox
+from pathlib import Path
 
 import openpyxl
 
@@ -15,50 +15,37 @@ class ExcelService:
     def __init__(self, state: AppState):
         self.state = state
 
-    def load_registry(self, file_path: str) -> bool:
-        """Загрузка данных из Excel или CSV файла"""
-        try:
-            suffix = Path(file_path).suffix.lower()
+    def read_registry(self, file_path: str) -> list[tuple[str, str]]:
+        """Чтение данных из Excel или CSV файла без обновления GUI."""
+        suffix = Path(file_path).suffix.lower()
 
-            if suffix == ".xlsx":
-                records = self._load_excel(file_path)
-            elif suffix == ".csv":
-                records = self._load_csv(file_path)
-            else:
-                messagebox.showerror("Ошибка", f"Неподдерживаемый формат: {suffix}")
-                return False
+        if suffix == ".xlsx":
+            records = self._load_excel(file_path)
+        elif suffix == ".csv":
+            records = self._load_csv(file_path)
+        else:
+            error_message = f"Неподдерживаемый формат: {suffix}"
+            raise ValueError(error_message)
+
+        logger.info(f"Загружено {len(records)} записей из {file_path}")
+        return records
+
+    def load_registry(self, file_path: str) -> bool:
+        """Совместимая обёртка для загрузки реестра."""
+        try:
+            records = self.read_registry(file_path)
 
             self.state.all_excel_records = records
-            self._update_table_from_records(records)
+            self.state.expected_containers = [container for _, container in records if container]
 
-            logger.info(f"Загружено {len(records)} записей из {file_path}")
+            if self.state.gui and hasattr(self.state.gui, "apply_registry_records"):
+                self.state.gui.apply_registry_records(records)
+
             return True
-
         except Exception as e:
             logger.error(f"Ошибка при загрузке реестра: {e}")
             messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
             return False
-
-    def _update_table_from_records(self, records):
-        """Обновление таблицы данными из загруженных записей"""
-        updated_rows = min(len(records), len(self.state.table_entries))
-        for i in range(updated_rows):
-            xls_id, code = records[i]
-
-            self.state.table_entries[i]["code"] = code
-            self.state.table_entries[i]["xls_id"] = xls_id
-
-            item_id = self.state.table_entries[i]["item_id"]
-            current_values = list(self.state.gui.tree.item(item_id, "values"))
-
-            # Гарантируем длину 6: [№, expected, invoice, recognized, match, score]
-            while len(current_values) < 6:
-                current_values.append("")
-
-            current_values[1] = code
-            current_values[2] = xls_id
-
-            self.state.gui.tree.item(item_id, values=tuple(current_values))
 
     def _load_excel(self, file_path: str) -> list:
         """Загрузка данных из Excel файла"""

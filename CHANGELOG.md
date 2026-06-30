@@ -3,6 +3,8 @@ Changelog
 
 ### 🚜 Refactor
 
+- Decouple registry and matching services from Tkinter
+- Route startup Tesseract check through GUI log
 - Add startup Tesseract check and version logging
 - Cleanup gui components imports and stale comments
 - Cleanup main window imports and stale comments

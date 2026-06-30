@@ -344,13 +344,88 @@ class MainWindow:
     def load_registry(self):
         file_path = filedialog.askopenfilename(filetypes=[("Excel or CSV", "*.xlsx *.csv")])
         if file_path:
-            self.app.excel_service.load_registry(file_path)
+            try:
+                records = self.app.excel_service.read_registry(file_path)
+                self.apply_registry_records(records)
+            except Exception as e:
+                logger.error(f"Ошибка при выборе реестра: {e}")
+                messagebox.showerror("Ошибка", f"Не удалось загрузить реестр: {e}")
 
     def start_recognition_thread(self):
         threading.Thread(target=self.start_recognition, daemon=True).start()
 
     def match_with_expected(self):
-        self.app.matching_service.match_with_expected(self.tree)
+        expected_containers = [container for _, container in self.state.all_excel_records if container]
+        match_results = self.app.matching_service.match_entries(self.state.table_entries, expected_containers)
+        self.apply_match_results(match_results)
+
+    def apply_registry_records(self, records):
+        """Применение загруженных записей реестра к таблице GUI."""
+        self.state.all_excel_records = records
+        self.state.expected_containers = [container for _, container in records if container]
+
+        if not getattr(self, "tree", None) or not self.state.table_entries:
+            return
+
+        for entry in self.state.table_entries:
+            entry["code"] = ""
+            entry["xls_id"] = ""
+            item_id = entry["item_id"]
+            values = list(self.tree.item(item_id, "values"))
+            while len(values) < 6:
+                values.append("")
+            values[1] = ""
+            values[2] = ""
+            self.tree.item(item_id, values=tuple(values))
+
+        updated_rows = min(len(records), len(self.state.table_entries))
+        for i in range(updated_rows):
+            xls_id, code = records[i]
+            self.state.table_entries[i]["code"] = code
+            self.state.table_entries[i]["xls_id"] = xls_id
+
+            item_id = self.state.table_entries[i]["item_id"]
+            current_values = list(self.tree.item(item_id, "values"))
+            while len(current_values) < 6:
+                current_values.append("")
+
+            current_values[1] = code
+            current_values[2] = xls_id
+            self.tree.item(item_id, values=tuple(current_values))
+
+    def apply_match_results(self, match_results):
+        """Применение результатов сопоставления к таблице GUI."""
+        if not getattr(self, "tree", None) or not self.state.table_entries:
+            return
+
+        for entry in self.state.table_entries:
+            item_id = entry["item_id"]
+            values = list(self.tree.item(item_id, "values"))
+            while len(values) < 6:
+                values.append("")
+            values[4] = ""
+            values[5] = ""
+            self.tree.item(item_id, values=tuple(values), tags=())
+
+        if not match_results:
+            return
+
+        self.tree.tag_configure("exact_match", background="#a8e6a8")
+        self.tree.tag_configure("partial_match", background="#fff8a8")
+        self.tree.tag_configure("no_match", background="#ffaaaa")
+
+        for result in match_results:
+            item_id = result.get("item_id")
+            if not item_id:
+                continue
+
+            values = list(self.tree.item(item_id, "values"))
+            while len(values) < 6:
+                values.append("")
+
+            values[4] = result.get("best_match", "")
+            values[5] = f'{result.get("best_score", 0.0):.2f}'
+            self.tree.item(item_id, values=tuple(values), tags=(result.get("tag", "no_match"),))
 
     def save_results(self, btn):
         btn.config(state=tk.DISABLED)
