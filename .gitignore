@@ -20,3 +20,35 @@ build/
 !.idea/codeStyles
 !.idea/runConfigurations
 !.idea/important_settings.xml
+
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs / temporary files
+*.log
+*.tmp
+*.bak
+*.backup
+
+
+
+
+
