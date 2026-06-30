@@ -1,8 +1,13 @@
 Changelog
 ## [unreleased]
 
+### 📚 Documentation
+
+- Document current architecture and refactor plan
+
 ### ⚙️ Miscellaneous Tasks
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 ## [2.0.1] - 2025-11-07
 
