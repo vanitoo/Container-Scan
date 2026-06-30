@@ -5,6 +5,7 @@ Changelog
 
 - Cleanup stale excel registry loader
 - Cleanup app state comments
+- Cleanup pdf service imports and stale comments
 
 ### 📚 Documentation
 
@@ -14,6 +15,7 @@ Changelog
 
 - Update CHANGELOG.md [skip ci]
 - Update .gitignore to include additional file types and directories
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
