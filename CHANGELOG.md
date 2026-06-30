@@ -3,18 +3,12 @@ Changelog
 
 ### 🚜 Refactor
 
-- Decouple registry and matching services from Tkinter
-- Route startup Tesseract check through GUI log
-- Add startup Tesseract check and version logging
-- Cleanup gui components imports and stale comments
-- Cleanup main window imports and stale comments
 - Cleanup stale excel registry loader
 - Cleanup app state comments
 - Cleanup pdf service imports and stale comments
 
 ### 📚 Documentation
 
-- Document remaining ruff issues
 - Document current architecture and refactor plan
 - Add Codex refactor plan
 
@@ -35,6 +29,9 @@ Changelog
 - Remove stale disabled workflow
 - Remove stale disabled workflow
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Update changelog and version; add Tesseract check and logging
+- Update version to 2.0.3; refactor registry loading and matching services
 ## [2.0.1] - 2025-11-07
 
 ### ⚙️ Miscellaneous Tasks
