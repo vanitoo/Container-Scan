@@ -4,6 +4,7 @@ Changelog
 ### 🚜 Refactor
 
 - Cleanup stale excel registry loader
+- Cleanup app state comments
 
 ### 📚 Documentation
 
@@ -13,6 +14,7 @@ Changelog
 
 - Update CHANGELOG.md [skip ci]
 - Update .gitignore to include additional file types and directories
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
