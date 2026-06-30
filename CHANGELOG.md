@@ -1,6 +1,10 @@
 Changelog
 ## [unreleased]
 
+### 🚜 Refactor
+
+- Cleanup stale excel registry loader
+
 ### 📚 Documentation
 
 - Document current architecture and refactor plan
@@ -9,6 +13,7 @@ Changelog
 
 - Update CHANGELOG.md [skip ci]
 - Update .gitignore to include additional file types and directories
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 ## [2.0.1] - 2025-11-07
