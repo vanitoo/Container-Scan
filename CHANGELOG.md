@@ -20,6 +20,10 @@ Changelog
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- Remove stale duplicate project config
+- Remove stale disabled workflow
+- Remove stale disabled workflow
 ## [2.0.1] - 2025-11-07
 
 ### ⚙️ Miscellaneous Tasks
