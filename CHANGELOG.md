@@ -8,6 +8,8 @@ Changelog
 ### ⚙️ Miscellaneous Tasks
 
 - Update CHANGELOG.md [skip ci]
+- Update .gitignore to include additional file types and directories
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 ## [2.0.1] - 2025-11-07
 
