@@ -1,8 +1,13 @@
 Changelog
 ## [unreleased]
 
+### 🚀 Features
+
+- Add page rotation functionality and release script
+
 ### ⚙️ Miscellaneous Tasks
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 ## [2.0.4] - 2026-08-17
 
