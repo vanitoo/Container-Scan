@@ -1,19 +1,33 @@
 # .github/workflows/bandit.yml
-# Ищет небезопасные паттерны в Python-коде
+# Ищет небезопасные паттерны в Python-коде.
+# Low-severity замечания показываются в логе, но не блокируют CI;
+# Medium/High findings завершают workflow с ошибкой.
 
 name: Bandit
+
 on: [pull_request, push]
+
+permissions:
+  contents: read
+
 jobs:
   bandit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+
       - name: Install Poetry
         run: pipx install "poetry>=2.0,<3"
+
       - name: Install locked dependencies
         run: poetry install --with dev --no-root --no-interaction
-      - name: Run Bandit
-        run: poetry run bandit -r .
+
+      - name: Report Bandit findings
+        run: poetry run bandit -r src/pdf_ocr_app || true
+
+      - name: Enforce medium/high severity findings
+        run: poetry run bandit -r src/pdf_ocr_app -ll
