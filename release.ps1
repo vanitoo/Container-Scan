@@ -112,8 +112,8 @@ try {
     Write-Host ""
     Write-Host "Release $Version started successfully." -ForegroundColor Green
     Write-Host "GitHub Actions will build dist\main.exe and publish the release." -ForegroundColor Green
-    Write-Host "Actions: https://github.com/vanitoo/pythonProject-OpenCV-PDF/actions" -ForegroundColor Cyan
-    Write-Host "Releases: https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases" -ForegroundColor Cyan
+    Write-Host "Actions: https://github.com/vanitoo/container-scan/actions" -ForegroundColor Cyan
+    Write-Host "Releases: https://github.com/vanitoo/container-scan/releases" -ForegroundColor Cyan
     Write-Host "Build releases: https://github.com/vanitoo/pythonProject-OpenCV-PDF-Build/releases" -ForegroundColor Cyan
 }
 catch {

@@ -1,4 +1,4 @@
-"""PDF OCR desktop application."""
+"""ContainerScan desktop application."""
 
 from pdf_ocr_app.version import __version__
 

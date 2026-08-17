@@ -242,7 +242,14 @@ class MainWindow:
     def create_interface(self):
         self.root = tk.Tk()
         self.root.withdraw()  # <- спрятали окно на время инициализации
-        self.root.title(f"Распознавание текста из PDF - Текущая версия программы: {self.app.version}")
+        self.root.title(f"ContainerScan — версия {self.app.version}")
+        resource_root = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[3]))
+        icon_path = resource_root / "icon.ico"
+        if icon_path.exists():
+            try:
+                self.root.iconbitmap(default=str(icon_path))
+            except tk.TclError as exc:
+                logger.warning("Не удалось установить иконку приложения %s: %s", icon_path, exc)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Центрирование окна

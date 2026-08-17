@@ -1,4 +1,4 @@
-# PDF Text Recognition Tool
+# ContainerScan
 
 ![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
 ![OpenCV](https://img.shields.io/badge/OpenCV-4.5+-green.svg)
@@ -6,7 +6,7 @@
 
 ## Описание
 
-OpenCV PDF Text Recognizer — настольное Python-приложение для распознавания данных из PDF-файлов.
+ContainerScan — настольное Python-приложение для распознавания и сопоставления номеров контейнеров из PDF-файлов.
 
 Текущий основной сценарий: загрузить один или несколько PDF, выбрать область на странице, распознать контейнерный номер через OCR и сопоставить результат с данными из Excel/CSV-реестра.
 

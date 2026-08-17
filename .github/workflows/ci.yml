@@ -1,0 +1,61 @@
+name: Python CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: poetry
+
+      - name: Install Poetry
+        run: pipx install "poetry>=2.0,<3"
+
+      - name: Install locked dependencies
+        run: poetry install --with dev --no-root --no-interaction
+
+      - name: Validate Poetry configuration
+        run: poetry check --lock
+
+      - name: Check critical Python errors
+        run: poetry run ruff check run.py src/pdf_ocr_app --select E9,F63,F7,F82
+
+      - name: Compile Python sources
+        run: poetry run python -m compileall -q run.py src/pdf_ocr_app
+
+      - name: Verify package imports
+        env:
+          PYTHONPATH: src
+        run: >-
+          poetry run python -c
+          "from pdf_ocr_app.app import PDFOCRApp;
+          from pdf_ocr_app.version import __version__;
+          print(__version__, PDFOCRApp.__name__)"
+
+      - name: Run tests when present
+        shell: bash
+        run: |
+          if find tests -type f -name 'test_*.py' -print -quit 2>/dev/null | grep -q .; then
+            poetry run pytest -q -p no:cacheprovider
+          else
+            echo "No tests found; skipping pytest."
+          fi

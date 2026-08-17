@@ -1,4 +1,0 @@
-prompt:
-  inline_prompt_files: [ ./prompts/inline.md ]
-  context_prompt_files: [ ./prompts/context.md ]
-  summary_prompt_files: [ ./prompts/summary.md ]

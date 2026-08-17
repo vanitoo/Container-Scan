@@ -16,8 +16,8 @@ from pdf_ocr_app.utils.logger import logger
 from pdf_ocr_app.version import __version__ as CURRENT_VERSION
 
 class AutoUpdater:
-    UPDATE_URL = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
-    DOWNLOAD_URL_PREFIX = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/download/"
+    UPDATE_URL = "https://api.github.com/repos/vanitoo/container-scan/releases/latest"
+    DOWNLOAD_URL_PREFIX = "https://github.com/vanitoo/container-scan/releases/download/"
 
     def __init__(self, root, add_about_button: bool = True):
         self.root = root
@@ -299,8 +299,8 @@ try {
     def show_about(self):
         messagebox.showinfo(
             "О программе",
-            f"Текущая версия: {CURRENT_VERSION}\nПроект с открытым исходным кодом.\nGitHub: https://github.com/vanitoo/pythonProject-OpenCV-PDF",
+            f"ContainerScan\nТекущая версия: {CURRENT_VERSION}\nПроект с открытым исходным кодом.\nGitHub: https://github.com/vanitoo/container-scan",
         )
 
     def show_version_in_title(self):
-        self.root.title(f"OpenCV PDF - Версия: {CURRENT_VERSION}")
+        self.root.title(f"ContainerScan — версия {CURRENT_VERSION}")

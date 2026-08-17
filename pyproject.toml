@@ -1,7 +1,7 @@
 [project]
-name = "pythonproject-opencv-pdf"
+name = "container-scan"
 version = "2.0.6"
-description = "Распознавание текста из PDF"
+description = "Распознавание и сопоставление номеров контейнеров"
 authors = [
     {name = "vanitoo",email = "56897888+vanitoo@users.noreply.github.com"}
 ]
