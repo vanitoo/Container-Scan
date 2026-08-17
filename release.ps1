@@ -58,6 +58,17 @@ try {
     $remote = if ($remotes -contains "origin") { "origin" } else { $remotes[0].Trim() }
     $tag = "v$Version"
 
+    Write-Host "Synchronizing $remote/$branch..." -ForegroundColor Cyan
+    Invoke-Git -GitArgs @("fetch", $remote, $branch)
+    $localHead = (git rev-parse "HEAD").Trim()
+    $remoteHead = (git rev-parse "$remote/$branch").Trim()
+    $mergeBase = (git merge-base "HEAD" "$remote/$branch").Trim()
+    if ($localHead -eq $mergeBase -and $localHead -ne $remoteHead) {
+        Invoke-Git -GitArgs @("merge", "--ff-only", "$remote/$branch")
+    } elseif ($remoteHead -ne $mergeBase) {
+        throw "Local $branch and $remote/$branch have diverged. Rebase or merge them before creating a release."
+    }
+
     if (git tag --list $tag) { throw "Local tag $tag already exists." }
     $remoteTag = git ls-remote --tags $remote "refs/tags/$tag"
     if ($LASTEXITCODE -ne 0) { throw "Could not check tag $tag on remote $remote." }
@@ -90,6 +101,9 @@ try {
 
     Invoke-Git -GitArgs @("add", "version.py", "pyproject.toml", "poetry.lock")
     Invoke-Git -GitArgs @("commit", "-m", "release: $Version")
+    # A changelog workflow may update master while checks are running.
+    Invoke-Git -GitArgs @("fetch", $remote, $branch)
+    Invoke-Git -GitArgs @("rebase", "$remote/$branch")
     Invoke-Git -GitArgs @("push", $remote, $branch)
     Invoke-Git -GitArgs @("tag", "-a", $tag, "-m", "Release $Version")
     Invoke-Git -GitArgs @("push", $remote, $tag)
