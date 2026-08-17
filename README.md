@@ -8,11 +8,21 @@
   <strong>Распознавание контейнерных номеров в PDF, сопоставление с реестром и обработка документов.</strong>
 </p>
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
-![OpenCV](https://img.shields.io/badge/OpenCV-4.13+-green.svg)
-![Tesseract](https://img.shields.io/badge/Tesseract-OCR-yellowgreen)
-![Version](https://img.shields.io/badge/version-2.0.6-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
+<p align="center">
+  <a href="https://github.com/vanitoo/container-scan/actions/workflows/ci.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/ci.yml/badge.svg?branch=master" alt="Python CI"></a>
+  <a href="https://github.com/vanitoo/container-scan/actions/workflows/build_ver.yaml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/build_ver.yaml/badge.svg" alt="Build EXE"></a>
+  <a href="https://github.com/vanitoo/container-scan/actions/workflows/pip-audit.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/pip-audit.yml/badge.svg?branch=master" alt="pip-audit"></a>
+  <a href="https://github.com/vanitoo/container-scan/actions/workflows/codeql.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/codeql.yml/badge.svg?branch=master" alt="CodeQL"></a>
+  <a href="https://github.com/vanitoo/container-scan/actions/workflows/bandit.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/bandit.yml/badge.svg?branch=master" alt="Bandit"></a>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-blue.svg" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/OpenCV-4.13+-green.svg" alt="OpenCV 4.13+">
+  <img src="https://img.shields.io/badge/Tesseract-OCR-yellowgreen" alt="Tesseract OCR">
+  <img src="https://img.shields.io/badge/version-2.0.6-blue.svg" alt="Version 2.0.6">
+  <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="MIT License">
+</p>
 
 ## О проекте
 
