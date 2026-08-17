@@ -930,7 +930,7 @@ class StatusBar:
         self.status_page_var = tk.StringVar(value="Стр: —/—")
         self.status_page_zoom_var = tk.StringVar(value="Лист: 100%")
         self.status_area_zoom_var = tk.StringVar(value="Область: 100%")
-        self.status_size_var = tk.StringVar(value="Размер: —×—")
+        self.status_size_var = tk.StringVar(value="Размер листа: —×—")
         self.status_match_var = tk.StringVar(value="Всего: 0 | Сопоставлено: 0 | Осталось: 0")
         self.status_msg_var = tk.StringVar(value="Готово")
 
@@ -955,6 +955,7 @@ class StatusBar:
     ):
         if page is not None and total is not None:
             self.status_page_var.set(f"Стр: {page}/{total}")
+            size = self._current_page_size()
         if zoom is not None:
             area_zoom = zoom
         if page_zoom is not None:
@@ -962,8 +963,32 @@ class StatusBar:
         if area_zoom is not None:
             self.status_area_zoom_var.set(f"Область: {area_zoom}")
         if size is not None:
-            self.status_size_var.set(f"Размер: {size}")
+            self.status_size_var.set(f"Размер листа: {size}")
         if match_summary is not None:
             self.status_match_var.set(match_summary)
         if msg is not None:
             self.status_msg_var.set(msg)
+
+    def _current_page_size(self) -> str | None:
+        """Return native PDF dimensions and the current rendered-image size."""
+        document = self.state.pdf_doc
+        if document is None or document.page_count == 0:
+            return None
+
+        try:
+            page_index = max(0, min(self.state.current_page, document.page_count - 1))
+            rect = document.load_page(page_index).rect
+            width_mm = rect.width * 25.4 / 72
+            height_mm = rect.height * 25.4 / 72
+            dimensions = (
+                f"{rect.width:.1f}×{rect.height:.1f} pt "
+                f"({width_mm:.1f}×{height_mm:.1f} мм)"
+            )
+
+            image = self.state.original_page_image
+            if image is not None:
+                dimensions += f", {image.width}×{image.height} px"
+            return dimensions
+        except Exception as exc:
+            logger.debug(f"Не удалось получить размер текущего листа: {exc}")
+            return None
