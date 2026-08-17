@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 import fitz
 from PIL import Image
 
-from config import DEFAULT_COORDINATES
+from pdf_ocr_app.config import DEFAULT_COORDINATES
 
 
 @dataclass
@@ -58,6 +58,7 @@ class AppState:
     debug_mode: bool = False
     extra_mode: bool = False
     recognition_mode: int = 0
+    use_legacy_tesseract: bool = False
     mass_page_scale: bool = False
     advanced_options: Dict[str, Any] = field(default_factory=lambda: {
         "grayscale": {"enabled": True},

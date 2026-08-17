@@ -2,7 +2,7 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
-from utils.logger import logger
+from pdf_ocr_app.utils.logger import logger
 
 def apply_minimal_theme(root, theme="light"):
     """Применение минималистичной темы"""

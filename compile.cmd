@@ -11,7 +11,7 @@ if errorlevel 1 (
 poetry install --with dev --no-root --no-interaction
 if errorlevel 1 exit /b 1
 
-poetry run pyinstaller --onefile --windowed --clean --name main app.py
+poetry run pyinstaller --onefile --windowed --clean --name main --paths src run.py
 
 
 echo done

@@ -28,13 +28,14 @@ try {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
         throw "Git is not installed or is not available in PATH."
     }
-    if (-not (Test-Path "version.py") -or -not (Test-Path "pyproject.toml")) {
-        throw "version.py or pyproject.toml was not found in $PSScriptRoot."
+    $versionFile = "src\pdf_ocr_app\version.py"
+    if (-not (Test-Path $versionFile) -or -not (Test-Path "pyproject.toml")) {
+        throw "$versionFile or pyproject.toml was not found in $PSScriptRoot."
     }
 
-    $versionSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot "version.py"))
+    $versionSource = [IO.File]::ReadAllText((Join-Path $PSScriptRoot $versionFile))
     $currentVersion = [regex]::Match($versionSource, '__version__\s*=\s*"([^"]+)"').Groups[1].Value
-    if (-not $currentVersion) { throw "Could not read the current version from version.py." }
+    if (-not $currentVersion) { throw "Could not read the current version from $versionFile." }
 
     if (-not $Version) { $Version = Read-Host "New version (current: $currentVersion)" }
     $Version = $Version.Trim()
@@ -86,7 +87,7 @@ try {
         '__version__\s*=\s*"[^"]+"',
         "__version__ = `"$Version`""
     )
-    [IO.File]::WriteAllText((Join-Path $PSScriptRoot "version.py"), $versionSource, $utf8NoBom)
+    [IO.File]::WriteAllText((Join-Path $PSScriptRoot $versionFile), $versionSource, $utf8NoBom)
 
     Invoke-Poetry -PoetryArgs @("lock")
     Invoke-Poetry -PoetryArgs @("check", "--lock")
@@ -99,7 +100,7 @@ try {
         Write-Host "No tests found; skipping pytest." -ForegroundColor Yellow
     }
 
-    Invoke-Git -GitArgs @("add", "version.py", "pyproject.toml", "poetry.lock")
+    Invoke-Git -GitArgs @("add", $versionFile, "pyproject.toml", "poetry.lock")
     Invoke-Git -GitArgs @("commit", "-m", "release: $Version")
     # A changelog workflow may update master while checks are running.
     Invoke-Git -GitArgs @("fetch", $remote, $branch)

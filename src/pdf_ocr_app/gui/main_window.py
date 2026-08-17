@@ -10,11 +10,11 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from PIL import Image
 
-from config import WINDOW_SIZE
-from gui.components import CanvasComponent, StatusBar, TableComponent, TextRedirector
-from gui.themes import apply_minimal_theme, toggle_theme
-from utils.logger import logger
-from utils.updater import AutoUpdater
+from pdf_ocr_app.config import WINDOW_SIZE
+from pdf_ocr_app.gui.components import CanvasComponent, StatusBar, TableComponent, TextRedirector
+from pdf_ocr_app.gui.themes import apply_minimal_theme, toggle_theme
+from pdf_ocr_app.utils.logger import logger
+from pdf_ocr_app.utils.updater import AutoUpdater
 
 
 class MainWindow:
@@ -479,6 +479,7 @@ class MainWindow:
                     "",  # Распознанный контейнер
                     "",  # Совпадение
                     "",  # Коэффициент
+                    "",  # Различия распознанного и сопоставленного кодов
                 ),
             )
             self.state.table_entries.append({
@@ -557,6 +558,9 @@ class MainWindow:
                 values.append("")
             values[4] = ""
             values[5] = ""
+            while len(values) < 7:
+                values.append("")
+            values[6] = ""
             self.tree.item(item_id, values=tuple(values), tags=())
 
         if not match_results:
@@ -578,6 +582,11 @@ class MainWindow:
 
             values[4] = result.get("best_match", "")
             values[5] = f'{result.get("best_score", 0.0):.2f}'
+            while len(values) < 7:
+                values.append("")
+            values[6] = self.components["table"].format_differences(
+                values[3], values[4]
+            )
             self.tree.item(item_id, values=tuple(values), tags=(result.get("tag", "no_match"),))
 
         self.components["table"].update_match_summary()
@@ -1072,6 +1081,7 @@ class MainWindow:
 
         self.recognition_mode = tk.IntVar(value=0)
         self.debug_mode = tk.BooleanVar(value=False)
+        self.legacy_tesseract = tk.BooleanVar(value=self.state.use_legacy_tesseract)
         self.mass_page_scale = tk.BooleanVar(value=self.state.mass_page_scale)
 
         adv_checkbutton = ttk.Checkbutton(
@@ -1081,6 +1091,12 @@ class MainWindow:
             command=self._update_recognition_mode
         )
         self.adv_checkbutton = adv_checkbutton
+        self.legacy_tesseract_checkbutton = ttk.Checkbutton(
+            frame_left_extra,
+            text="Старый OCR 2.0.3",
+            variable=self.legacy_tesseract,
+            command=self._update_legacy_tesseract,
+        )
         debug_checkbutton = ttk.Checkbutton(
             frame_left_extra,
             text="Debug",
@@ -1094,6 +1110,7 @@ class MainWindow:
             command=self._update_mass_page_scale,
         )
         adv_checkbutton.pack(side=tk.LEFT, padx=4)
+        self.legacy_tesseract_checkbutton.pack(side=tk.LEFT, padx=4)
         debug_checkbutton.pack(side=tk.LEFT, padx=4)
         page_scale_checkbutton.pack(side=tk.LEFT, padx=4)
 
@@ -1162,8 +1179,16 @@ class MainWindow:
         self.state.recognition_mode = self.recognition_mode.get()
         mode_text = "Advance" if self.state.recognition_mode == 1 else "Basic"
         logger.info(f"Режим распознавания изменен на: {mode_text}")
+        self.legacy_tesseract_checkbutton.config(
+            state=tk.DISABLED if self.state.recognition_mode == 1 else tk.NORMAL
+        )
         if self.state.recognition_mode == 1:
             self._show_advanced_settings()
+
+    def _update_legacy_tesseract(self):
+        self.state.use_legacy_tesseract = self.legacy_tesseract.get()
+        mode = "старый 2.0.3" if self.state.use_legacy_tesseract else "новый"
+        logger.info(f"Базовый алгоритм Tesseract: {mode}")
 
     def _show_advanced_settings(self):
         """Show configurable OCR preprocessing stages and their execution order."""

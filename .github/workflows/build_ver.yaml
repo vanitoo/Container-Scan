@@ -44,16 +44,16 @@ jobs:
       - name: Export dependency snapshot
         run: poetry run pip freeze > pip-freeze.txt
 
-      - name: Get version from version.py
+      - name: Get application version
         id: get_version
         shell: pwsh
         run: |
-          $appVersion = (Get-Content version.py | Select-String '__version__ = "(.*)"').Matches.Groups[1].Value
+          $appVersion = (Get-Content src/pdf_ocr_app/version.py | Select-String '__version__ = "(.*)"').Matches.Groups[1].Value
           $projectVersion = (poetry version --short).Trim()
           $tagVersion = "${{ github.ref_name }}".TrimStart("v")
 
           if ($appVersion -ne $tagVersion) {
-            throw "Tag $tagVersion does not match version.py $appVersion"
+            throw "Tag $tagVersion does not match src/pdf_ocr_app/version.py $appVersion"
           }
           if ($projectVersion -ne $tagVersion) {
             throw "Tag $tagVersion does not match pyproject.toml $projectVersion"
@@ -63,7 +63,7 @@ jobs:
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
-          poetry run pyinstaller --onefile --noconsole --clean --name main --hidden-import=_ssl --collect-all=certifi app.py
+          poetry run pyinstaller --onefile --noconsole --clean --name main --paths src --hidden-import=_ssl --collect-all=certifi run.py
 
         # Пояснение:
         # --hidden-import=_ssl   → страхуем явное включение SSL-модуля

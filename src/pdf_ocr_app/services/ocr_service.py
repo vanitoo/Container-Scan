@@ -7,12 +7,11 @@ from pathlib import Path
 
 import cv2
 
-from models.state import AppState
-from services.ocr import EngineInitResult, TesseractEngine
-from services.ocr.easyocr_engine import EasyOCREngine
-from services.ocr.paddleocr_engine import PaddleOCREngine
-from services.ocr.preprocessing import prepare_tesseract_image
-from utils.logger import logger
+from pdf_ocr_app.models.state import AppState
+from pdf_ocr_app.services.ocr import EngineInitResult, TesseractEngine
+from pdf_ocr_app.services.ocr.easyocr_engine import EasyOCREngine
+from pdf_ocr_app.services.ocr.paddleocr_engine import PaddleOCREngine
+from pdf_ocr_app.utils.logger import logger
 
 
 class OCRService:
@@ -75,8 +74,7 @@ class OCRService:
 
     def enhanced_recognition(self, image, **kwargs):
         """Расширенное распознавание с обработкой изображения"""
-        prepared_image = prepare_tesseract_image(image, **kwargs)
-        return self.tesseract_engine.recognize(prepared_image).upper()
+        return self.tesseract_engine.recognize_advanced(image, **kwargs).upper()
 
     def format_extracted_text(self, text: str, page_num: int) -> str:
         """Форматирование распознанного текста"""
@@ -148,13 +146,22 @@ class OCRService:
 
             # Выбор режима распознавания
             if self.state.recognition_mode == 1:  # Advance режим
+                logger.debug(f"Страница {page_index + 1}: алгоритм OCR = Advance")
                 recognized_text = self.enhanced_recognition(
                     cropped_image,
                     options=self.state.advanced_options,
                     order=self.state.advanced_order,
                 )
             else:
-                recognized_text = self.recognize_with_engine(cropped_image)
+                if (
+                    self.state.ocr_engine.lower().strip() == "tesseract"
+                    and self.state.use_legacy_tesseract
+                ):
+                    logger.debug(f"Страница {page_index + 1}: алгоритм OCR = старый 2.0.3")
+                    recognized_text = self.tesseract_engine.recognize_legacy(cropped_image)
+                else:
+                    logger.debug(f"Страница {page_index + 1}: алгоритм OCR = новый")
+                    recognized_text = self.recognize_with_engine(cropped_image)
 
             formatted_text = self.format_extracted_text(recognized_text, page_index + 1)
 

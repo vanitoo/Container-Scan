@@ -6,8 +6,8 @@ from tkinter import ttk
 
 from PIL import Image, ImageTk
 
-from config import CANVAS_SIZE, DOUBLE_CLICK_DELAY
-from utils.logger import logger
+from pdf_ocr_app.config import CANVAS_SIZE, DOUBLE_CLICK_DELAY
+from pdf_ocr_app.utils.logger import logger
 
 
 class TextRedirector:
@@ -525,7 +525,9 @@ class TableComponent:
         self.tree.pack(fill=tk.BOTH, expand=True)
         tree_scroll.config(command=self.tree.yview)
 
-        self.tree["columns"] = ("number", "expected", "invoice", "recognized", "match", "score")
+        self.tree["columns"] = (
+            "number", "expected", "invoice", "recognized", "match", "score", "differences"
+        )
         self.tree.column("#0", width=0, stretch=tk.NO)
         self.tree.column("number", width=60, anchor=tk.CENTER)
         self.tree.column("expected", width=0, minwidth=0, stretch=tk.NO)
@@ -533,6 +535,7 @@ class TableComponent:
         self.tree.column("recognized", width=170, anchor=tk.W)
         self.tree.column("match", width=170, anchor=tk.W)
         self.tree.column("score", width=80, anchor=tk.CENTER)
+        self.tree.column("differences", width=210, anchor=tk.W)
 
         self.tree.heading("number", text="№")
         self.tree.heading("expected", text="Контейнер из XLS")
@@ -540,6 +543,7 @@ class TableComponent:
         self.tree.heading("recognized", text="Контейнер распознанный")
         self.tree.heading("match", text="Совпадение")
         self.tree.heading("score", text="Коэффициент")
+        self.tree.heading("differences", text="Различия: распознано → совпадение")
 
         self.tree.bind("<Button-1>", self.on_tree_click)
         self.tree.bind("<Return>", self.on_tree_enter)
@@ -548,6 +552,23 @@ class TableComponent:
         # self.tree.bind("<<TreeviewSelect>>", self.on_tree_selection_change)
 
         return self.tree
+
+    @staticmethod
+    def format_differences(recognized: str, matched: str) -> str:
+        """Show mismatched character positions for fixed-format container codes."""
+        recognized = (recognized or "").strip().upper()
+        matched = (matched or "").strip().upper()
+        if not recognized or not matched:
+            return "—"
+
+        differences = []
+        max_length = max(len(recognized), len(matched))
+        for index in range(max_length):
+            actual = recognized[index] if index < len(recognized) else "∅"
+            expected = matched[index] if index < len(matched) else "∅"
+            if actual != expected:
+                differences.append(f"{index + 1}: {actual}→{expected}")
+        return "; ".join(differences) if differences else "Совпадает полностью"
 
     def update_match_summary(self):
         """Count only exact and manually confirmed rows as fully matched."""
@@ -849,6 +870,9 @@ class TableComponent:
             new_value = entry_edit.get()
             values = list(self.tree.item(item, "values"))
             values[4] = new_value
+            while len(values) < 7:
+                values.append("")
+            values[6] = self.format_differences(values[3], new_value)
 
             # Обновляем цвет для ручного редактирования
             self.tree.tag_configure("manual_edit", background="#ddaaff")

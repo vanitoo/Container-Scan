@@ -1,8 +1,8 @@
 # services/matching_service.py
 from __future__ import annotations
 
-from models.state import AppState
-from utils.logger import logger
+from pdf_ocr_app.models.state import AppState
+from pdf_ocr_app.utils.logger import logger
 
 
 class MatchingService:

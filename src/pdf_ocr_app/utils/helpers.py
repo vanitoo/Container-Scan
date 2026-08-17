@@ -1,7 +1,7 @@
 # utils/helpers.py
 from __future__ import annotations
 import tkinter.messagebox as messagebox
-from utils.logger import logger
+from pdf_ocr_app.utils.logger import logger
 
 def safe_execute(func):
     """Декоратор для оборачивания функций с обработкой ошибок и логированием."""

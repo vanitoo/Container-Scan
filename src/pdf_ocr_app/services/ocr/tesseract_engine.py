@@ -7,8 +7,8 @@ import cv2
 import numpy as np
 import pytesseract
 
-from config import TESSERACT_PATHS
-from utils.logger import logger
+from pdf_ocr_app.config import TESSERACT_PATHS
+from pdf_ocr_app.utils.logger import logger
 
 from .base import EngineInitResult, OCRBackend
 from .preprocessing import prepare_tesseract_image
@@ -103,6 +103,10 @@ class TesseractEngine(OCRBackend):
             if cleaned_retry:
                 return cleaned_retry
 
+        return pytesseract.image_to_string(image, lang="eng").strip()
+
+    def recognize_legacy(self, image) -> str:
+        """Tesseract behavior used by application version 2.0.3."""
         return pytesseract.image_to_string(image, lang="eng").strip()
 
     def recognize_advanced(self, image, **kwargs) -> str:

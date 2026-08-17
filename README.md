@@ -60,40 +60,24 @@ C:/Program Files (x86)/Tesseract-OCR/tesseract.exe
 poetry run python run.py
 ```
 
-или:
-
-```bash
-poetry run python app.py
-```
-
 ---
 
 ## Текущая структура проекта
 
 ```text
 .
-├── app.py                    # создание AppState, сервисов и GUI
-├── run.py                    # короткая точка запуска
-├── config.py                 # настройки путей, координат, UI и колонок таблицы
-├── version.py                # версия приложения
+├── run.py                    # единственная точка запуска
 ├── pyproject.toml            # зависимости и настройки Ruff
 ├── README.md
-├── gui/
-│   ├── main_window.py        # основной Tkinter-интерфейс
-│   ├── components.py         # canvas, таблица, статусбар, redirect логов
-│   └── themes.py             # темы интерфейса
-├── models/
-│   └── state.py              # общее состояние приложения
-├── services/
-│   ├── pdf_service.py        # загрузка, рендер, объединение и crop PDF
-│   ├── ocr_service.py        # OCR и форматирование распознанного текста
-│   ├── excel_service.py      # загрузка XLSX/CSV-реестра
-│   └── matching_service.py   # сопоставление OCR-результатов с реестром
-└── utils/
-    ├── logger.py             # логирование
-    ├── updater.py            # автообновление
-    ├── file_utils.py         # файловые утилиты
-    └── helpers.py            # вспомогательные функции
+└── src/
+    └── pdf_ocr_app/
+        ├── app.py            # создание AppState, сервисов и GUI
+        ├── config.py         # настройки приложения
+        ├── version.py        # версия приложения
+        ├── gui/              # Tkinter-интерфейс
+        ├── models/           # состояние приложения
+        ├── services/         # PDF, OCR, Excel и сопоставление
+        └── utils/            # логирование, обновление и утилиты
 ```
 
 ---
@@ -139,7 +123,7 @@ REGEX_PATTERN=^[A-Z]{3}U\d{7}$
 - В коде есть старые методы рядом с новыми вариантами.
 - `AppState` содержит слишком много разнородных данных: PDF, изображения, GUI-ссылки, OCR-настройки и таблицу.
 - Сервисы пока частично завязаны на Tkinter.
-- Автообновление в архитектуре есть, но полноценная проверка обновлений в `app.py` пока не реализована.
+- Автообновление реализовано в `src/pdf_ocr_app/utils/updater.py`.
 - Автотестов пока нет.
 
 ---
@@ -182,7 +166,7 @@ REGEX_PATTERN=^[A-Z]{3}U\d{7}$
 Планируемая структура:
 
 ```text
-services/ocr/
+src/pdf_ocr_app/services/ocr/
 ├── base.py
 ├── tesseract_engine.py
 ├── preprocessing.py
@@ -227,7 +211,7 @@ services/ocr/
 powershell -NoProfile -ExecutionPolicy Bypass -File .\release.ps1 2.0.5
 ```
 
-Перед запуском рабочее дерево должно быть чистым. Скрипт обновит версии в `version.py` и `pyproject.toml`, обновит
+Перед запуском рабочее дерево должно быть чистым. Скрипт обновит версии в `src/pdf_ocr_app/version.py` и `pyproject.toml`, обновит
 `poetry.lock`, создаст release-коммит и тег `v2.0.5`, затем отправит их в GitHub.
 
 Проверка Ruff:

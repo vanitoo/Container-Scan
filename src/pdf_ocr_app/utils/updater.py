@@ -12,8 +12,8 @@ from pathlib import Path
 from tkinter import ttk
 import requests
 
-from version import __version__ as CURRENT_VERSION
-from utils.logger import logger
+from pdf_ocr_app.utils.logger import logger
+from pdf_ocr_app.version import __version__ as CURRENT_VERSION
 
 class AutoUpdater:
     UPDATE_URL = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"

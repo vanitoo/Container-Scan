@@ -5,15 +5,15 @@ import os
 
 from dotenv import load_dotenv, set_key
 
-from config import DEFAULT_COORDINATES, ENV_FILE
-from gui.main_window import MainWindow
-from models.state import AppState
-from services.excel_service import ExcelService
-from services.matching_service import MatchingService
-from services.ocr_service import OCRService
-from services.pdf_service import PDFService
-from utils.logger import logger
-from version import __version__
+from pdf_ocr_app.config import DEFAULT_COORDINATES, ENV_FILE
+from pdf_ocr_app.gui.main_window import MainWindow
+from pdf_ocr_app.models.state import AppState
+from pdf_ocr_app.services.excel_service import ExcelService
+from pdf_ocr_app.services.matching_service import MatchingService
+from pdf_ocr_app.services.ocr_service import OCRService
+from pdf_ocr_app.services.pdf_service import PDFService
+from pdf_ocr_app.utils.logger import logger
+from pdf_ocr_app.version import __version__
 
 
 class PDFOCRApp:

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import openpyxl
 
-from models.state import AppState
-from utils.logger import logger
+from pdf_ocr_app.models.state import AppState
+from pdf_ocr_app.utils.logger import logger
 
 
 class ExcelService:
