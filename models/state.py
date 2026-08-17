@@ -58,6 +58,7 @@ class AppState:
     debug_mode: bool = False
     extra_mode: bool = False
     recognition_mode: int = 0
+    mass_page_scale: bool = False
     advanced_options: Dict[str, Any] = field(default_factory=lambda: {
         "grayscale": {"enabled": True},
         "median_blur": {"enabled": True, "kernel": 3},

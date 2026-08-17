@@ -521,14 +521,6 @@ class TableComponent:
         tree_scroll = ttk.Scrollbar(table_frame, orient="vertical")
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.match_summary_var = tk.StringVar(value="Всего: 0   Сопоставлено: 0   Осталось: 0")
-        self.match_summary_label = ttk.Label(
-            table_frame,
-            textvariable=self.match_summary_var,
-            anchor=tk.E,
-        )
-        self.match_summary_label.pack(side=tk.BOTTOM, fill=tk.X, padx=6, pady=(5, 2))
-
         self.tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
         self.tree.pack(fill=tk.BOTH, expand=True)
         tree_scroll.config(command=self.tree.yview)
@@ -559,7 +551,7 @@ class TableComponent:
 
     def update_match_summary(self):
         """Count only exact and manually confirmed rows as fully matched."""
-        if self.tree is None or not hasattr(self, "match_summary_var"):
+        if self.tree is None:
             return
 
         rows = self.tree.get_children()
@@ -572,9 +564,11 @@ class TableComponent:
             if has_match and ("exact_match" in tags or "manual_edit" in tags):
                 matched += 1
         remaining = total - matched
-        self.match_summary_var.set(
-            f"Всего: {total}   Сопоставлено: {matched}   Осталось сопоставить: {remaining}"
-        )
+        status = self.app.gui.components.get("status")
+        if status is not None:
+            status.update_status(
+                match_summary=f"Всего: {total} | Сопоставлено: {matched} | Осталось: {remaining}"
+            )
 
     def on_tree_click(self, event):
         self.hide_edit_tooltip()
@@ -913,6 +907,7 @@ class StatusBar:
         self.status_page_zoom_var = tk.StringVar(value="Лист: 100%")
         self.status_area_zoom_var = tk.StringVar(value="Область: 100%")
         self.status_size_var = tk.StringVar(value="Размер: —×—")
+        self.status_match_var = tk.StringVar(value="Всего: 0 | Сопоставлено: 0 | Осталось: 0")
         self.status_msg_var = tk.StringVar(value="Готово")
 
     def create_statusbar(self):
@@ -926,10 +921,13 @@ class StatusBar:
         ttk.Label(statusbar, textvariable=self.status_area_zoom_var).pack(side=tk.LEFT, padx=8)
         ttk.Label(statusbar, text="|").pack(side=tk.LEFT, padx=6)
         ttk.Label(statusbar, textvariable=self.status_size_var).pack(side=tk.LEFT, padx=8)
+        ttk.Label(statusbar, text="|").pack(side=tk.LEFT, padx=6)
+        ttk.Label(statusbar, textvariable=self.status_match_var).pack(side=tk.LEFT, padx=8)
         ttk.Label(statusbar, textvariable=self.status_msg_var).pack(side=tk.RIGHT, padx=8)
 
     def update_status(
-        self, page=None, total=None, zoom=None, page_zoom=None, area_zoom=None, size=None, msg=None
+        self, page=None, total=None, zoom=None, page_zoom=None, area_zoom=None,
+        size=None, match_summary=None, msg=None
     ):
         if page is not None and total is not None:
             self.status_page_var.set(f"Стр: {page}/{total}")
@@ -941,5 +939,7 @@ class StatusBar:
             self.status_area_zoom_var.set(f"Область: {area_zoom}")
         if size is not None:
             self.status_size_var.set(f"Размер: {size}")
+        if match_summary is not None:
+            self.status_match_var.set(match_summary)
         if msg is not None:
             self.status_msg_var.set(msg)

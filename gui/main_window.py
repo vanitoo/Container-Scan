@@ -28,6 +28,7 @@ class MainWindow:
         """Переход к предыдущей странице"""
         if self.app.pdf_service.prev_page() and self.app.pdf_service.create_display_image():
             self.components['canvas'].display_image()
+            self._update_table_selection(self.state.current_page)
             self.components['status'].update_status(
                 page=self.state.current_page + 1,
                 total=self.state.total_pages,
@@ -40,6 +41,7 @@ class MainWindow:
         """Переход к следующей странице"""
         if self.app.pdf_service.next_page() and self.app.pdf_service.create_display_image():
             self.components['canvas'].display_image()
+            self._update_table_selection(self.state.current_page)
             self.components['status'].update_status(
                 page=self.state.current_page + 1,
                 total=self.state.total_pages,
@@ -259,8 +261,8 @@ class MainWindow:
         self._create_main_toolbar()
         self._create_extra_toolbar()
         self._create_canvas_area()
-        self._create_log_area()
         self._create_statusbar()
+        self._create_log_area()
 
         self.root.deiconify()
 
@@ -274,7 +276,7 @@ class MainWindow:
         self._setup_logging()
 
         # Инициализация автоОбновления
-        self.updater = AutoUpdater(self.root)
+        self.updater = AutoUpdater(self.root, add_about_button=False)
 
     def _create_top_toolbar(self):
         frame_top = ttk.Frame(self.root, style="Toolbar.TFrame")
@@ -333,14 +335,22 @@ class MainWindow:
         # Сохраняем ссылку на frame_main для позиционирования
         self.frame_main = frame_main
 
+        frame_right = ttk.Frame(frame_main)
+        frame_right.pack(side=tk.RIGHT, fill=tk.X, expand=False)
+
         self.extra_mode = tk.BooleanVar(value=False)
         options_btn = ttk.Checkbutton(
-            frame_left,
+            frame_right,
             text="Options",
             variable=self.extra_mode,
             command=self.toggle_extra_options
         )
         options_btn.pack(side=tk.LEFT, padx=6)
+        ttk.Button(
+            frame_right,
+            text="О программе",
+            command=lambda: self.updater.show_about(),
+        ).pack(side=tk.LEFT, padx=(4, 0))
 
     def _create_canvas_area(self):
         """Создание области с холстами и таблицей"""
@@ -1010,7 +1020,11 @@ class MainWindow:
                 self.root.after(0, lambda p=progress: progress_var.set(p))
 
                 # Fast mass mode uses the same selected coordinates on every page.
-                recognized_text = self.app.ocr_service.recognize_area(page_num, coords)
+                recognized_text = self.app.ocr_service.recognize_area(
+                    page_num,
+                    coords,
+                    use_page_scale=self.state.mass_page_scale,
+                )
 
                 # Обновляем таблицу в основном потоке
                 self.root.after(0, self._update_table_row, page_num, recognized_text)
@@ -1058,6 +1072,7 @@ class MainWindow:
 
         self.recognition_mode = tk.IntVar(value=0)
         self.debug_mode = tk.BooleanVar(value=False)
+        self.mass_page_scale = tk.BooleanVar(value=self.state.mass_page_scale)
 
         adv_checkbutton = ttk.Checkbutton(
             frame_left_extra,
@@ -1072,8 +1087,15 @@ class MainWindow:
             variable=self.debug_mode,
             command=self._update_debug_mode
         )
+        page_scale_checkbutton = ttk.Checkbutton(
+            frame_left_extra,
+            text="Масштаб каждого листа",
+            variable=self.mass_page_scale,
+            command=self._update_mass_page_scale,
+        )
         adv_checkbutton.pack(side=tk.LEFT, padx=4)
         debug_checkbutton.pack(side=tk.LEFT, padx=4)
+        page_scale_checkbutton.pack(side=tk.LEFT, padx=4)
 
         btn_theme = ttk.Button(frame_left_extra, text="Тема", command=self._toggle_theme)
         btn_theme.pack(side=tk.LEFT, padx=6)
@@ -1263,6 +1285,11 @@ class MainWindow:
 
         # Обновляем GUI хендлер
         logger.update_gui_handler(self.text_output)
+
+    def _update_mass_page_scale(self):
+        self.state.mass_page_scale = self.mass_page_scale.get()
+        mode = "индивидуальный для каждого листа" if self.state.mass_page_scale else "единый (старый режим)"
+        logger.info(f"Масштаб массового распознавания: {mode}")
 
     def _toggle_theme(self):
         """Переключение темы"""

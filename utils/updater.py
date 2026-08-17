@@ -2,6 +2,8 @@
 from __future__ import annotations
 import hashlib
 import hmac
+import os
+import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -17,11 +19,12 @@ class AutoUpdater:
     UPDATE_URL = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
     DOWNLOAD_URL_PREFIX = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/download/"
 
-    def __init__(self, root):
+    def __init__(self, root, add_about_button: bool = True):
         self.root = root
         self.download_cancelled = False
         self.latest_asset = None
-        self.add_about_button()
+        if add_about_button:
+            self.add_about_button()
         self.show_version_in_title()
         if getattr(sys, 'frozen', False):
             self.root.after(10_000, self.check_for_update_async)
@@ -220,16 +223,73 @@ class AutoUpdater:
 
     def _restart_application(self, version: str):
         try:
-            messagebox.showinfo(
-                "Обновление загружено",
-                f"Версия {version} успешно загружена!\n\n"
-                "Пожалуйста, закройте приложение и запустите его снова\n"
-                "для применения обновления.\n\n"
-                f"Файл обновления: main_{version}.exe"
+            current_exe = Path(sys.executable).resolve()
+            update_exe = current_exe.parent / f"main_{version}.exe"
+            if not update_exe.is_file():
+                raise FileNotFoundError(f"Файл обновления не найден: {update_exe}")
+
+            helper_script = current_exe.parent / ".main_update.ps1"
+            helper_log = current_exe.parent / "update_error.log"
+            script = r'''param(
+    [Parameter(Mandatory=$true)][int]$ParentProcessId,
+    [Parameter(Mandatory=$true)][string]$Source,
+    [Parameter(Mandatory=$true)][string]$Target,
+    [Parameter(Mandatory=$true)][string]$WorkingDirectory,
+    [Parameter(Mandatory=$true)][string]$LogPath
+)
+$ErrorActionPreference = "Stop"
+try {
+    Wait-Process -Id $ParentProcessId -Timeout 60 -ErrorAction SilentlyContinue
+    $replaced = $false
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        try {
+            Move-Item -LiteralPath $Source -Destination $Target -Force
+            $replaced = $true
+            break
+        } catch {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    if (-not $replaced) { throw "Could not replace the running executable after 30 attempts." }
+    Start-Process -FilePath $Target -WorkingDirectory $WorkingDirectory
+    Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
+} catch {
+    "$(Get-Date -Format o) $($_.Exception.Message)" | Set-Content -LiteralPath $LogPath -Encoding UTF8
+    exit 1
+} finally {
+    Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+}
+'''
+            helper_script.write_text(script, encoding="utf-8")
+
+            creation_flags = (
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                | getattr(subprocess, "DETACHED_PROCESS", 0)
             )
-            self.root.quit()
+            subprocess.Popen(
+                [
+                    "powershell.exe",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy", "Bypass",
+                    "-WindowStyle", "Hidden",
+                    "-File", str(helper_script),
+                    "-ParentProcessId", str(os.getpid()),
+                    "-Source", str(update_exe),
+                    "-Target", str(current_exe),
+                    "-WorkingDirectory", str(current_exe.parent),
+                    "-LogPath", str(helper_log),
+                ],
+                cwd=str(current_exe.parent),
+                creationflags=creation_flags,
+                close_fds=True,
+            )
+            logger.info(
+                f"Запущена установка обновления {version}: {update_exe.name} -> {current_exe.name}"
+            )
+            self.root.destroy()
         except Exception as e:
-            print(f"Ошибка при перезапуске: {e}")
+            logger.error(f"Ошибка при запуске установки обновления: {e}", exc_info=True)
             messagebox.showerror("Ошибка", f"Не удалось перезапустить приложение: {e}")
 
     def add_about_button(self):

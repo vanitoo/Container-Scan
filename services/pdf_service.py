@@ -291,7 +291,13 @@ class PDFService:
             messagebox.showerror("Ошибка", f"Не удалось объединить PDF файлы: {e}")
             return False
 
-    def extract_area_image(self, page_index: int, coords: tuple, dpi: int = 200):
+    def extract_area_image(
+        self,
+        page_index: int,
+        coords: tuple,
+        dpi: int = 200,
+        use_page_scale: bool = False,
+    ):
         """Извлечение области изображения из PDF"""
         x_start, y_start, x_end, y_end = coords
 
@@ -302,7 +308,31 @@ class PDFService:
         pix = page.get_pixmap(dpi=dpi)
         page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
-        inverse_scale = 1 / self.state.last_scale_factor
+        # Manual recognition uses the scale calculated when the current page is
+        # displayed. Mass recognition has no displayed page, so calculate the
+        # same fit-to-500px scale independently for every rendered page.
+        effective_scale = (
+            500 / page_image.height
+            if use_page_scale
+            else self.state.last_scale_factor
+        )
+        inverse_scale = 1 / effective_scale
+
+        if self.state.debug_mode:
+            page_scale = 500 / page_image.height
+            logger.debug(
+                f"Массовый OCR — страница {page_index + 1}: "
+                f"PDF={page.rect.width:.2f}x{page.rect.height:.2f} pt, dpi={dpi}, "
+                f"render={page_image.width}x{page_image.height} px, "
+                f"height={page_image.height} px, "
+                f"display target height=500 px, "
+                f"единый масштаб={self.state.last_scale_factor:.8f}, "
+                f"масштаб листа={page_scale:.8f}, "
+                f"выбранный масштаб={effective_scale:.8f}, "
+                f"inverse={inverse_scale:.8f}, "
+                f"режим={'по листу' if use_page_scale else 'единый'}, "
+                f"canvas coords={coords}"
+            )
 
         x0 = int(x_start * inverse_scale)
         y0 = int(y_start * inverse_scale)
@@ -316,6 +346,13 @@ class PDFService:
 
         if x1 <= x0 or y1 <= y0:
             raise ValueError("Некорректные координаты после масштабирования")
+
+        if self.state.debug_mode:
+            logger.debug(
+                f"Массовый OCR — страница {page_index + 1}: "
+                f"crop=({x0},{y0})-({x1},{y1}), "
+                f"crop size={x1 - x0}x{y1 - y0} px"
+            )
 
         cropped = page_image.crop((x0, y0, x1, y1))
         if cropped.size[0] == 0 or cropped.size[1] == 0:

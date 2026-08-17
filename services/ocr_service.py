@@ -123,10 +123,19 @@ class OCRService:
         logger.debug(f"Страница {page_num} - не удалось распознать контейнер, исходный текст: '{text}'")
         return "Не распознано"
 
-    def recognize_area(self, page_index: int, coords: tuple) -> str:
+    def recognize_area(
+        self,
+        page_index: int,
+        coords: tuple,
+        use_page_scale: bool = False,
+    ) -> str:
         """Распознавание текста в области"""
         try:
-            cropped_image = self.state.pdf_service.extract_area_image(page_index, coords)
+            cropped_image = self.state.pdf_service.extract_area_image(
+                page_index,
+                coords,
+                use_page_scale=use_page_scale,
+            )
             if cropped_image is None or cropped_image.size == 0:
                 return ""
 
