@@ -63,7 +63,7 @@ jobs:
         # --collect-data certifi → берём корневые сертификаты (cacert.pem) в бандл
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: build-artifacts
           path: |
