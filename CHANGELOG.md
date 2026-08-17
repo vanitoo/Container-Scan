@@ -1,12 +1,17 @@
 Changelog
-## [unreleased]
+## [2.0.6] - 2026-08-17
 
 ### 🐛 Bug Fixes
 
 - Synchronize release branch before push
 
+### 💼 Other
+
+- 2.0.6
+
 ### ⚙️ Miscellaneous Tasks
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
