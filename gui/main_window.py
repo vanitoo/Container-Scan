@@ -709,7 +709,7 @@ class MainWindow:
 
     def init_ocr_engine(self):
         selected_engine = self.ocr_engine_var.get()
-        # Реализация инициализации OCR движка
+        logger.debug(f"Инициализация OCR движка: {selected_engine}")
 
     def update_coordinates(self, event=None):
         """Обновление координат из поля ввода"""
@@ -718,7 +718,10 @@ class MainWindow:
             if len(coordinates) == 4:
                 self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end = map(int, coordinates)
                 logger.info(
-                    f"Обновлены координаты: {self.state.x_start}, {self.state.y_start}, {self.state.x_end}, {self.state.y_end}")
+                    "Обновлены координаты: "
+                    f"{self.state.x_start}, {self.state.y_start}, "
+                    f"{self.state.x_end}, {self.state.y_end}"
+                )
 
                 # Обновляем выделение на canvas
                 self.components['canvas'].draw_selection()
@@ -816,7 +819,7 @@ class MainWindow:
 
         except Exception as e:
             logger.error(f"Ошибка в процессе распознавания: {e}")
-            self.root.after(0, lambda: self._recognition_failed(progress_window, e))
+            self.root.after(0, lambda error=e: self._recognition_failed(progress_window, error))
 
     def _update_table_row(self, page_num, recognized_text):
         """Обновление строки таблицы"""
@@ -968,9 +971,19 @@ class MainWindow:
     def _init_ocr_engine(self):
         """Инициализация OCR движка"""
         selected_engine = self.ocr_engine_var.get()
-        self.state.ocr_engine = selected_engine
-        logger.info(f"Выбран OCR движок: {selected_engine}")
-        messagebox.showinfo("Инфо", f"OCR движок установлен: {selected_engine}")
+        result = self.app.ocr_service.initialize_engine(selected_engine)
+
+        if result.ok:
+            self.state.ocr_engine = result.engine
+            logger.info(f"Выбран OCR движок: {result.engine}")
+            messagebox.showinfo("Инфо", result.message)
+            return
+
+        self.ocr_engine_var.set(self.state.ocr_engine)
+        if result.install_hint:
+            messagebox.showwarning("OCR движок", f"{result.message}\n\n{result.install_hint}")
+        else:
+            messagebox.showwarning("OCR движок", result.message)
 
     def _update_coordinates(self, event=None):
         """Обновление координат из поля ввода"""
@@ -981,7 +994,10 @@ class MainWindow:
                 if len(coords) == 4:
                     self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end = map(int, coords)
                     logger.info(
-                        f"Координаты обновлены: {self.state.x_start}, {self.state.y_start}, {self.state.x_end}, {self.state.y_end}")
+                        "Координаты обновлены: "
+                        f"{self.state.x_start}, {self.state.y_start}, "
+                        f"{self.state.x_end}, {self.state.y_end}"
+                    )
 
                     # Обновляем выделение на canvas
                     self.components['canvas'].draw_selection()

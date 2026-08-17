@@ -6,53 +6,59 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 import cv2
-import numpy as np
-import pytesseract
 
-from config import TESSERACT_PATHS
 from models.state import AppState
+from services.ocr import EngineInitResult, TesseractEngine
+from services.ocr.easyocr_engine import EasyOCREngine
+from services.ocr.paddleocr_engine import PaddleOCREngine
+from services.ocr.preprocessing import prepare_tesseract_image
 from utils.logger import logger
-
-TESSERACT_INSTALL_URL = "https://github.com/UB-Mannheim/tesseract/wiki"
 
 
 class OCRService:
     def __init__(self, state: AppState):
         self.state = state
-        self.tesseract_path: Path | None = None
-        self.tesseract_available = False
-        self.set_tesseract_path()
-
-    def set_tesseract_path(self) -> bool:
-        """Установка пути к Tesseract."""
-        for path in TESSERACT_PATHS:
-            if path.exists():
-                pytesseract.pytesseract.tesseract_cmd = str(path)
-                self.tesseract_path = path
-                self.tesseract_available = True
-                logger.debug(f"Путь для Tesseract установлен: {path}")
-                return True
-
-        self.tesseract_path = None
-        self.tesseract_available = False
-        return False
+        self.tesseract_engine = TesseractEngine()
+        self.easyocr_engine = EasyOCREngine()
+        self.paddleocr_engine = PaddleOCREngine()
+        self.active_engine = self.tesseract_engine
 
     def check_tesseract(self) -> bool:
         """Проверка доступности Tesseract при старте приложения."""
-        if not self.set_tesseract_path():
-            logger.error("Tesseract не найден.")
-            logger.info(f"Установить Tesseract можно здесь: {TESSERACT_INSTALL_URL}")
-            return False
+        result = self.tesseract_engine.initialize()
+        return result.ok
 
-        try:
-            version = pytesseract.get_tesseract_version()
-            logger.info(f"Tesseract доступен: {pytesseract.pytesseract.tesseract_cmd}")
-            logger.info(f"Версия Tesseract: {version}")
-            return True
-        except Exception as e:
-            logger.error(f"Tesseract найден, но не запускается: {e}")
-            logger.info(f"Установить Tesseract можно здесь: {TESSERACT_INSTALL_URL}")
-            return False
+    def initialize_engine(self, engine_name: str) -> EngineInitResult:
+        """Инициализация выбранного OCR движка."""
+        normalized_engine = (engine_name or "").strip().lower()
+
+        if normalized_engine == "tesseract":
+            result = self.tesseract_engine.initialize()
+            if result.ok:
+                self.active_engine = self.tesseract_engine
+                self.state.ocr_engine = self.tesseract_engine.name
+            return result
+
+        backend_map = {
+            "easyocr": self.easyocr_engine,
+            "paddleocr": self.paddleocr_engine,
+        }
+        backend = backend_map.get(normalized_engine)
+        if backend is None:
+            message = f"Неизвестный OCR движок: {engine_name}"
+            logger.error(message)
+            return EngineInitResult(False, engine_name, message)
+
+        if not backend.is_installed():
+            message = f"{backend.name} не установлен."
+            logger.error(message)
+            logger.info(backend.install_hint)
+            return EngineInitResult(False, backend.name, message, backend.install_hint)
+
+        message = f"{backend.name} установлен, но на этом этапе ещё не подключён."
+        logger.warning(message)
+        logger.info("Для распознавания сейчас используется только Tesseract.")
+        return EngineInitResult(False, backend.name, message, backend.install_hint)
 
     def recognize_with_engine(self, image, engine: str | None = None) -> str:
         """Распознавание текста с использованием выбранного движка"""
@@ -62,58 +68,15 @@ class OCRService:
         engine = engine.lower().strip()
 
         if engine == "tesseract":
-            return pytesseract.image_to_string(image, lang="eng").strip()
+            return self.tesseract_engine.recognize(image)
 
-        # TODO: Добавить поддержку EasyOCR и PaddleOCR при необходимости
-        # Пока используем Tesseract как fallback
-        return pytesseract.image_to_string(image, lang="eng").strip()
+        logger.warning(f"Движок {engine} пока не подключён. Используется Tesseract.")
+        return self.tesseract_engine.recognize(image)
 
     def enhanced_recognition(self, image, **kwargs):
         """Расширенное распознавание с обработкой изображения"""
-        use_grayscale = kwargs.get('use_grayscale', True)
-        use_median_blur = kwargs.get('use_median_blur', True)
-        use_thresholding = kwargs.get('use_thresholding', False)
-        use_clahe = kwargs.get('use_clahe', True)
-        use_resize = kwargs.get('use_resize', True)
-        use_deskew = kwargs.get('use_deskew', False)
-        use_noise_removal = kwargs.get('use_noise_removal', True)
-        use_morphological_ops = kwargs.get('use_morphological_ops', False)
-
-        if use_grayscale:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-        if use_median_blur:
-            image = cv2.medianBlur(image, 3)
-
-        if use_thresholding:
-            _, image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-        if use_clahe:
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            image = clahe.apply(image)
-
-        if use_resize:
-            image = cv2.resize(image, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
-
-        if use_deskew:
-            coords = np.column_stack(np.where(image > 0))
-            if len(coords) > 0:
-                angle = cv2.minAreaRect(coords)[-1]
-                angle = -(90 + angle) if angle < -45 else -angle
-                (h, w) = image.shape[:2]
-                center = (w // 2, h // 2)
-                M = cv2.getRotationMatrix2D(center, angle, 1.0)
-                image = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-
-        if use_noise_removal:
-            image = cv2.medianBlur(image, 3)
-
-        if use_morphological_ops:
-            kernel = np.ones((1, 1), np.uint8)
-            image = cv2.dilate(image, kernel, iterations=1)
-            image = cv2.erode(image, kernel, iterations=1)
-
-        return pytesseract.image_to_string(image, lang="eng").strip().upper()
+        prepared_image = prepare_tesseract_image(image, **kwargs)
+        return self.tesseract_engine.recognize(prepared_image).upper()
 
     def format_extracted_text(self, text: str, page_num: int) -> str:
         """Форматирование распознанного текста"""

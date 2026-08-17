@@ -3,6 +3,7 @@ Changelog
 
 ### 🚜 Refactor
 
+- Add OCR engine interface and installation checks
 - Decouple registry and matching services from Tkinter
 - Route startup Tesseract check through GUI log
 - Add startup Tesseract check and version logging
