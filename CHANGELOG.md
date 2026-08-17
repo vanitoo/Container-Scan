@@ -1,6 +1,11 @@
 Changelog
 ## [unreleased]
 
+### ⚙️ Miscellaneous Tasks
+
+- Update CHANGELOG.md [skip ci]
+## [2.0.4] - 2026-08-17
+
 ### 🚀 Features
 
 - Implement OCR engine interface with Tesseract, EasyOCR, and PaddleOCR support; update initialization and recognition methods
