@@ -1,0 +1,66 @@
+name: Build EXE
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        run: pipx install "poetry>=2.0,<3"
+
+      - name: Install locked dependencies
+        run: poetry install --with dev --no-root --no-interaction
+
+      - name: Check installed dependencies
+        run: poetry run pip check
+
+      - name: Build EXE with PyInstaller
+        run: >-
+          poetry run pyinstaller
+          --onefile
+          --noconsole
+          --clean
+          --name ContainerScan
+          --icon icon.ico
+          --add-data "icon.ico;."
+          --paths src
+          --hidden-import=_ssl
+          --collect-all=certifi
+          run.py
+
+      - name: Verify EXE exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "dist/ContainerScan.exe")) {
+            throw "dist/ContainerScan.exe was not created"
+          }
+          Get-Item "dist/ContainerScan.exe" | Format-List Name,Length,LastWriteTime
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ContainerScan-${{ github.sha }}
+          path: dist/ContainerScan.exe
+          if-no-files-found: error
