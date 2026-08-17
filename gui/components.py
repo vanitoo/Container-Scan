@@ -29,6 +29,7 @@ class CanvasComponent:
         self.state = app.state
         self.canvas = None
         self.canvas2 = None
+        self.recognition_text = None
 
     def display_image(self):
         """Отображение текущего изображения на canvas"""
@@ -42,38 +43,106 @@ class CanvasComponent:
                     self.state.x_end and self.state.y_end):
                 self.draw_selection()
 
+            self._update_zoom_status()
+
             logger.debug("Изображение отображено на canvas")
 
     def create_canvases(self):
         canvas_width, canvas_height = CANVAS_SIZE
+
+        page_frame = ttk.Frame(self.parent)
+        page_frame.pack(side=tk.LEFT, anchor=tk.N, padx=6, pady=10)
         self.canvas = tk.Canvas(
-            self.parent,
+            page_frame,
             width=canvas_width,
             height=canvas_height,
             bg="#F3F4F6",
-            highlightthickness=0
+            highlightthickness=0,
         )
-        self.canvas.pack(side=tk.LEFT, anchor=tk.N, padx=6, pady=10)
+        page_scroll_y = ttk.Scrollbar(page_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        page_scroll_x = ttk.Scrollbar(page_frame, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.canvas.configure(
+            yscrollcommand=page_scroll_y.set,
+            xscrollcommand=page_scroll_x.set,
+        )
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        page_scroll_y.grid(row=0, column=1, sticky="ns")
+        page_scroll_x.grid(row=1, column=0, sticky="ew")
+        page_frame.grid_rowconfigure(0, weight=1)
+        page_frame.grid_columnconfigure(0, weight=1)
+
+        preview_frame = ttk.Frame(self.parent)
+        preview_frame.pack(side=tk.LEFT, anchor=tk.N, padx=6, pady=10)
 
         self.canvas2 = tk.Canvas(
-            self.parent,
+            preview_frame,
             width=canvas_width,
-            height=canvas_height,
+            height=int(canvas_height * 0.62),
             bg="#F3F4F6",
             highlightthickness=0
         )
-        self.canvas2.pack(side=tk.LEFT, anchor=tk.N, padx=6, pady=10)
+        self.canvas2.pack(side=tk.TOP, anchor=tk.N)
+
+        ttk.Label(preview_frame, text="Результат распознавания").pack(
+            side=tk.TOP, anchor=tk.W, pady=(8, 3)
+        )
+        self.recognition_text = tk.Text(
+            preview_frame,
+            width=46,
+            height=8,
+            wrap=tk.WORD,
+            state=tk.DISABLED,
+            bg="#F8FAFC",
+            relief=tk.SOLID,
+            borderwidth=1,
+        )
+        self.recognition_text.pack(side=tk.TOP, fill=tk.X)
 
         # Бинды событий
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
         self.canvas.bind("<MouseWheel>", self.on_canvas_zoom)
+        self.canvas.bind("<ButtonPress-3>", self.on_canvas_pan_start)
+        self.canvas.bind("<B3-Motion>", self.on_canvas_pan_drag)
+        self.canvas.bind("<ButtonRelease-3>", self.on_canvas_pan_end)
         self.canvas2.bind("<MouseWheel>", self.on_canvas2_zoom)
 
+    def on_canvas_pan_start(self, event):
+        self.canvas.scan_mark(event.x, event.y)
+        self.canvas.config(cursor="fleur")
+
+    def on_canvas_pan_drag(self, event):
+        self.canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def on_canvas_pan_end(self, _event):
+        self.canvas.config(cursor="")
+
+    def show_recognition_result(self, result: dict | None):
+        """Show OCR details below the cropped-image preview."""
+        if self.recognition_text is None:
+            return
+
+        if result:
+            text = (
+                f"Страница: {result.get('page', '')}\n"
+                f"Движок: {result.get('engine', '')}\n\n"
+                "Исходный текст:\n"
+                f"{result.get('raw_text', '')}\n\n"
+                "Форматированный текст:\n"
+                f"{result.get('formatted_text', '')}"
+            )
+        else:
+            text = ""
+
+        self.recognition_text.config(state=tk.NORMAL)
+        self.recognition_text.delete("1.0", tk.END)
+        self.recognition_text.insert("1.0", text)
+        self.recognition_text.config(state=tk.DISABLED)
+
     def on_canvas_click(self, event):
-        self.state.x_start = event.x
-        self.state.y_start = event.y
+        self.state.x_start = round(self.canvas.canvasx(event.x))
+        self.state.y_start = round(self.canvas.canvasy(event.y))
 
         if self.state.rect_id:
             self.canvas.delete(self.state.rect_id)
@@ -86,7 +155,8 @@ class CanvasComponent:
         self.update_coordinates_display()
 
     def on_canvas_drag(self, event):
-        x_end, y_end = event.x, event.y
+        x_end = round(self.canvas.canvasx(event.x))
+        y_end = round(self.canvas.canvasy(event.y))
         if self.state.rect_id is not None:
             self.canvas.coords(
                 self.state.rect_id,
@@ -95,7 +165,8 @@ class CanvasComponent:
             )
 
     def on_canvas_release(self, event):
-        self.state.x_end, self.state.y_end = event.x, event.y
+        self.state.x_end = round(self.canvas.canvasx(event.x))
+        self.state.y_end = round(self.canvas.canvasy(event.y))
 
         if self.state.x_end < self.state.x_start:
             self.state.x_start, self.state.x_end = self.state.x_end, self.state.x_start
@@ -192,19 +263,49 @@ class CanvasComponent:
         if new_scale == self.state.canvas_scale:
             return
 
+        previous_scale = self.state.canvas_scale
+        coordinate_ratio = new_scale / previous_scale
         self.state.canvas_scale = new_scale
+        self.state.scale_factor = new_scale
+        self.state.last_scale_factor = new_scale
         new_width = int(self.state.original_page_image.width * self.state.canvas_scale)
         new_height = int(self.state.original_page_image.height * self.state.canvas_scale)
         scaled_image = self.state.original_page_image.resize((new_width, new_height), Image.LANCZOS)
+        self.state.page_image = scaled_image
+
+        self.state.x_start = round(self.state.x_start * coordinate_ratio)
+        self.state.y_start = round(self.state.y_start * coordinate_ratio)
+        self.state.x_end = round(self.state.x_end * coordinate_ratio)
+        self.state.y_end = round(self.state.y_end * coordinate_ratio)
+        self.state.selected_areas = [
+            (
+                self.state.rect_id,
+                self.state.x_start,
+                self.state.y_start,
+                self.state.x_end,
+                self.state.y_end,
+            )
+        ]
 
         self.canvas.delete("all")
         img_tk = ImageTk.PhotoImage(scaled_image)
         self.canvas.image = img_tk
         self.canvas.create_image(0, 0, anchor=tk.NW, image=img_tk)
+        self.state.rect_id = self.canvas.create_rectangle(
+            self.state.x_start,
+            self.state.y_start,
+            self.state.x_end,
+            self.state.y_end,
+            outline="red",
+            width=2,
+        )
         self.canvas.config(scrollregion=(0, 0, new_width, new_height))
 
-        self.canvas.xview_moveto((mouse_x * zoom_factor - event.x) / new_width)
-        self.canvas.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
+        self.canvas.xview_moveto((mouse_x * coordinate_ratio - event.x) / new_width)
+        self.canvas.yview_moveto((mouse_y * coordinate_ratio - event.y) / new_height)
+        self.update_coordinates_display()
+        self.update_cropped_image()
+        self._update_zoom_status()
 
     def on_canvas2_zoom(self, event):
         """Масштабирование на втором холсте"""
@@ -245,9 +346,18 @@ class CanvasComponent:
 
         # Обновляем статус масштаба
         try:
-            self.app.gui.components['status'].update_status(zoom=f"{int(self.state.canvas2_scale * 100)}%")
+            self._update_zoom_status()
         except Exception as e:
             logger.debug(f"Ошибка обновления статуса масштаба: {e}")
+
+    def _update_zoom_status(self):
+        try:
+            self.app.gui.components["status"].update_status(
+                page_zoom=f"{round(self.state.canvas_scale * 100)}%",
+                area_zoom=f"{round(self.state.canvas2_scale * 100)}%",
+            )
+        except Exception as e:
+            logger.debug(f"Ошибка обновления масштабов: {e}")
 
     def update_coordinates_display(self):
         if hasattr(self.app.gui, 'coordinates_entry'):
@@ -367,6 +477,7 @@ class CanvasComponent:
             logger.debug("Изображение создано на canvas2")
 
             self.canvas2.config(scrollregion=self.canvas2.bbox(tk.ALL))
+            self._update_zoom_status()
             logger.debug("Область прокрутки установлена")
 
             logger.debug(f"УСПЕШНО: Обновлено изображение на втором холсте: {width}x{height}")
@@ -399,6 +510,9 @@ class TableComponent:
         self.tree = None
         self.last_click_time = 0
         self._prevent_selection_loop = False  # Добавляем флаг
+        self._edit_tooltip = None
+        self._edit_tooltip_after = None
+        self._hovered_edit_cell = None
 
     def create_table(self):
         table_frame = ttk.Frame(self.parent)
@@ -406,6 +520,14 @@ class TableComponent:
 
         tree_scroll = ttk.Scrollbar(table_frame, orient="vertical")
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.match_summary_var = tk.StringVar(value="Всего: 0   Сопоставлено: 0   Осталось: 0")
+        self.match_summary_label = ttk.Label(
+            table_frame,
+            textvariable=self.match_summary_var,
+            anchor=tk.E,
+        )
+        self.match_summary_label.pack(side=tk.BOTTOM, fill=tk.X, padx=6, pady=(5, 2))
 
         self.tree = ttk.Treeview(table_frame, yscrollcommand=tree_scroll.set, selectmode="browse")
         self.tree.pack(fill=tk.BOTH, expand=True)
@@ -429,11 +551,33 @@ class TableComponent:
 
         self.tree.bind("<Button-1>", self.on_tree_click)
         self.tree.bind("<Return>", self.on_tree_enter)
+        self.tree.bind("<Motion>", self.on_tree_motion)
+        self.tree.bind("<Leave>", self.hide_edit_tooltip)
         # self.tree.bind("<<TreeviewSelect>>", self.on_tree_selection_change)
 
         return self.tree
 
+    def update_match_summary(self):
+        """Count only exact and manually confirmed rows as fully matched."""
+        if self.tree is None or not hasattr(self, "match_summary_var"):
+            return
+
+        rows = self.tree.get_children()
+        total = len(rows)
+        matched = 0
+        for item in rows:
+            tags = set(self.tree.item(item, "tags"))
+            values = self.tree.item(item, "values")
+            has_match = len(values) > 4 and bool(str(values[4]).strip())
+            if has_match and ("exact_match" in tags or "manual_edit" in tags):
+                matched += 1
+        remaining = total - matched
+        self.match_summary_var.set(
+            f"Всего: {total}   Сопоставлено: {matched}   Осталось сопоставить: {remaining}"
+        )
+
     def on_tree_click(self, event):
+        self.hide_edit_tooltip()
         region = self.tree.identify_region(event.x, event.y)
         if region != "cell":
             return
@@ -452,6 +596,60 @@ class TableComponent:
                 self.edit_cell(item, column)
             elif column == "#4":  # Столбец "Контейнер распознанный"
                 self.copy_recognized_to_clipboard(item, event)
+
+    def on_tree_motion(self, event):
+        region = self.tree.identify_region(event.x, event.y)
+        item = self.tree.identify_row(event.y)
+        column = self.tree.identify_column(event.x)
+        hovered_cell = (item, column) if region == "cell" and item and column == "#5" else None
+
+        if hovered_cell == self._hovered_edit_cell:
+            return
+
+        self.hide_edit_tooltip()
+        self._hovered_edit_cell = hovered_cell
+        if hovered_cell is None:
+            self.tree.config(cursor="")
+            return
+
+        self.tree.config(cursor="hand2")
+        x_root = event.x_root + 12
+        y_root = event.y_root + 14
+        self._edit_tooltip_after = self.tree.after(
+            350,
+            lambda: self.show_edit_tooltip(x_root, y_root),
+        )
+
+    def show_edit_tooltip(self, x_root: int, y_root: int):
+        self._edit_tooltip_after = None
+        if self._hovered_edit_cell is None:
+            return
+
+        self._edit_tooltip = tk.Toplevel(self.app.root)
+        self._edit_tooltip.wm_overrideredirect(True)
+        self._edit_tooltip.wm_geometry(f"+{x_root}+{y_root}")
+        tk.Label(
+            self._edit_tooltip,
+            text="Двойной щелчок — редактировать совпадение",
+            background="#FFF7CC",
+            foreground="#111827",
+            font=("Arial", 9),
+            padx=8,
+            pady=5,
+            relief="solid",
+            borderwidth=1,
+        ).pack()
+
+    def hide_edit_tooltip(self, _event=None):
+        if self._edit_tooltip_after is not None:
+            self.tree.after_cancel(self._edit_tooltip_after)
+            self._edit_tooltip_after = None
+        if self._edit_tooltip is not None:
+            self._edit_tooltip.destroy()
+            self._edit_tooltip = None
+        self._hovered_edit_cell = None
+        if self.tree is not None:
+            self.tree.config(cursor="")
 
 
     def on_tree_enter(self, event):
@@ -554,7 +752,12 @@ class TableComponent:
 
         def on_key_release(event):
             if not first_input["done"]:
-                if event.char and len(event.char) == 1:
+                if event.keysym in ("BackSpace", "Delete"):
+                    first_input["done"] = True
+                    update_listbox()
+                    return
+
+                if event.char and len(event.char) == 1 and event.char.isprintable():
                     char = event.char.upper()
                     entry_edit.delete(0, tk.END)
                     entry_edit.insert(0, char)
@@ -574,6 +777,34 @@ class TableComponent:
             entry_edit.icursor(pos)
             update_listbox()
 
+        def go_to_next_row():
+            rows = list(self.tree.get_children())
+            try:
+                index = rows.index(item)
+            except ValueError:
+                return
+
+            next_item = None
+            for candidate in rows[index + 1:]:
+                tags = set(self.tree.item(candidate, "tags"))
+                values = self.tree.item(candidate, "values")
+                has_match = len(values) > 4 and bool(str(values[4]).strip())
+                is_completed = has_match and (
+                    "exact_match" in tags or "manual_edit" in tags
+                )
+                if not is_completed:
+                    next_item = candidate
+                    break
+
+            if next_item is None:
+                self.tree.focus_set()
+                return
+            self.tree.selection_set(next_item)
+            self.tree.focus(next_item)
+            self.tree.see(next_item)
+            self.goto_page(next_item)
+            self.tree.after(10, lambda: self.edit_cell(next_item, "#5"))
+
         def on_entry_key(event):
             if event.keysym == "Down" and listbox.size() > 0:
                 listbox.focus_set()
@@ -590,10 +821,7 @@ class TableComponent:
                     listbox.place_forget()
                     entry_edit.focus_set()
                 save_edit()
-                self.tree.focus(item)
-                self.tree.selection_set(item)
-                self.tree.see(item)
-                self.tree.focus_set()
+                go_to_next_row()
                 return "break"
 
             if event.keysym == "Escape":
@@ -608,10 +836,7 @@ class TableComponent:
             if event.keysym == "Return":
                 on_listbox_select(None)
                 save_edit()
-                self.tree.focus(item)
-                self.tree.selection_set(item)
-                self.tree.see(item)
-                self.tree.focus_set()
+                go_to_next_row()
                 return "break"
             elif event.keysym == "Escape":
                 listbox.place_forget()
@@ -636,6 +861,7 @@ class TableComponent:
             self.tree.item(item, tags=("manual_edit",))
 
             self.tree.item(item, values=values)
+            self.update_match_summary()
             entry_edit.destroy()
             listbox.place_forget()
 
@@ -684,7 +910,8 @@ class StatusBar:
         self.state = app.state
 
         self.status_page_var = tk.StringVar(value="Стр: —/—")
-        self.status_zoom_var = tk.StringVar(value="Масштаб: 100%")
+        self.status_page_zoom_var = tk.StringVar(value="Лист: 100%")
+        self.status_area_zoom_var = tk.StringVar(value="Область: 100%")
         self.status_size_var = tk.StringVar(value="Размер: —×—")
         self.status_msg_var = tk.StringVar(value="Готово")
 
@@ -694,16 +921,24 @@ class StatusBar:
 
         ttk.Label(statusbar, textvariable=self.status_page_var).pack(side=tk.LEFT, padx=8, pady=4)
         ttk.Label(statusbar, text="|").pack(side=tk.LEFT, padx=6)
-        ttk.Label(statusbar, textvariable=self.status_zoom_var).pack(side=tk.LEFT, padx=8)
+        ttk.Label(statusbar, textvariable=self.status_page_zoom_var).pack(side=tk.LEFT, padx=8)
+        ttk.Label(statusbar, text="|").pack(side=tk.LEFT, padx=6)
+        ttk.Label(statusbar, textvariable=self.status_area_zoom_var).pack(side=tk.LEFT, padx=8)
         ttk.Label(statusbar, text="|").pack(side=tk.LEFT, padx=6)
         ttk.Label(statusbar, textvariable=self.status_size_var).pack(side=tk.LEFT, padx=8)
         ttk.Label(statusbar, textvariable=self.status_msg_var).pack(side=tk.RIGHT, padx=8)
 
-    def update_status(self, page=None, total=None, zoom=None, size=None, msg=None):
+    def update_status(
+        self, page=None, total=None, zoom=None, page_zoom=None, area_zoom=None, size=None, msg=None
+    ):
         if page is not None and total is not None:
             self.status_page_var.set(f"Стр: {page}/{total}")
         if zoom is not None:
-            self.status_zoom_var.set(f"Масштаб: {zoom}")
+            area_zoom = zoom
+        if page_zoom is not None:
+            self.status_page_zoom_var.set(f"Лист: {page_zoom}")
+        if area_zoom is not None:
+            self.status_area_zoom_var.set(f"Область: {area_zoom}")
         if size is not None:
             self.status_size_var.set(f"Размер: {size}")
         if msg is not None:

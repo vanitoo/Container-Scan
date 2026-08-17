@@ -28,8 +28,16 @@ class PDFService:
             canvas_height = 500
             image_height = self.state.original_page_image.height
             scale_factor = canvas_height / image_height
+            previous_scale = self.state.scale_factor
+            if previous_scale != 1.0 and previous_scale != scale_factor:
+                coordinate_ratio = scale_factor / previous_scale
+                self.state.x_start = round(self.state.x_start * coordinate_ratio)
+                self.state.y_start = round(self.state.y_start * coordinate_ratio)
+                self.state.x_end = round(self.state.x_end * coordinate_ratio)
+                self.state.y_end = round(self.state.y_end * coordinate_ratio)
             self.state.scale_factor = scale_factor
             self.state.last_scale_factor = scale_factor
+            self.state.canvas_scale = scale_factor
 
             scaled_width = int(self.state.original_page_image.width * scale_factor)
             scaled_height = int(self.state.original_page_image.height * scale_factor)
@@ -80,6 +88,89 @@ class PDFService:
             logger.error(f"Ошибка поворота страницы {self.state.current_page + 1}: {e}")
             return False
 
+    @staticmethod
+    def align_area_to_reference(reference_image, current_image, reference_box: tuple) -> dict | None:
+        """Transfer a reference box using ORB feature matching and a homography."""
+        reference_gray = cv2.cvtColor(np.asarray(reference_image), cv2.COLOR_RGB2GRAY)
+        current_gray = cv2.cvtColor(np.asarray(current_image), cv2.COLOR_RGB2GRAY)
+
+        max_width = 1100
+        reference_scale = min(1.0, max_width / reference_gray.shape[1])
+        current_scale = min(1.0, max_width / current_gray.shape[1])
+        reference_small = cv2.resize(
+            reference_gray,
+            None,
+            fx=reference_scale,
+            fy=reference_scale,
+            interpolation=cv2.INTER_AREA,
+        )
+        current_small = cv2.resize(
+            current_gray,
+            None,
+            fx=current_scale,
+            fy=current_scale,
+            interpolation=cv2.INTER_AREA,
+        )
+
+        orb = cv2.ORB_create(nfeatures=4000)
+        reference_points, reference_descriptors = orb.detectAndCompute(reference_small, None)
+        current_points, current_descriptors = orb.detectAndCompute(current_small, None)
+        if reference_descriptors is None or current_descriptors is None:
+            return None
+
+        matches = cv2.BFMatcher(cv2.NORM_HAMMING).knnMatch(
+            reference_descriptors,
+            current_descriptors,
+            k=2,
+        )
+        good_matches = [first for first, second in matches if first.distance < 0.72 * second.distance]
+        if len(good_matches) < 20:
+            return None
+
+        source_points = np.float32(
+            [reference_points[match.queryIdx].pt for match in good_matches]
+        )
+        target_points = np.float32(
+            [current_points[match.trainIdx].pt for match in good_matches]
+        )
+        homography, inlier_mask = cv2.findHomography(
+            source_points,
+            target_points,
+            cv2.RANSAC,
+            4.0,
+        )
+        if homography is None or inlier_mask is None:
+            return None
+
+        inliers = int(inlier_mask.sum())
+        if inliers < 12 or inliers / len(good_matches) < 0.25:
+            return None
+
+        x1, y1, x2, y2 = reference_box
+        reference_corners = np.float32(
+            [[[x1, y1]], [[x2, y1]], [[x2, y2]], [[x1, y2]]]
+        )
+        reference_corners *= reference_scale
+        transformed = cv2.perspectiveTransform(reference_corners, homography)
+        transformed /= current_scale
+        transformed = transformed.reshape(-1, 2)
+
+        min_x, min_y = np.floor(transformed.min(axis=0)).astype(int)
+        max_x, max_y = np.ceil(transformed.max(axis=0)).astype(int)
+        image_width, image_height = current_image.size
+        min_x = int(max(0, min(min_x, image_width - 1)))
+        min_y = int(max(0, min(min_y, image_height - 1)))
+        max_x = int(max(1, min(max_x, image_width)))
+        max_y = int(max(1, min(max_y, image_height)))
+        if max_x <= min_x or max_y <= min_y:
+            return None
+
+        return {
+            "box": (min_x, min_y, max_x, max_y),
+            "matches": len(good_matches),
+            "inliers": inliers,
+        }
+
     def load_page(self) -> bool:
         """Загрузка текущей страницы"""
         if not self.state.pdf_doc:
@@ -87,10 +178,7 @@ class PDFService:
 
         try:
             current_page = max(0, min(self.state.current_page, self.state.pdf_doc.page_count - 1))
-            page = self.state.pdf_doc.load_page(current_page)
-
-            pix = page.get_pixmap(dpi=200)
-            self.state.original_page_image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+            self.state.original_page_image = self.render_page_image(current_page)
 
             logger.debug(f"Загружена страница {current_page + 1}")
             return True
@@ -98,6 +186,14 @@ class PDFService:
         except Exception as e:
             logger.error(f"Ошибка загрузки страницы {self.state.current_page}: {e}")
             return False
+
+    def render_page_image(self, page_index: int, dpi: int = 200) -> Image.Image:
+        """Render a PDF page without changing the current-page state."""
+        if not self.state.pdf_doc:
+            raise ValueError("PDF document is not loaded")
+        page = self.state.pdf_doc.load_page(page_index)
+        pix = page.get_pixmap(dpi=dpi, colorspace=fitz.csRGB)
+        return Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
 
     def load_pdf(self, file_path: str) -> bool:
         """Загрузка PDF файла"""
@@ -136,6 +232,8 @@ class PDFService:
             self.state.page_image = None
             self.state.original_page_image = None
             self.state.image_display = None
+            self.state.layout_reference_image = None
+            self.state.layout_reference_box = None
             self.state.selected_areas = []
             self.state.total_pages = 0
             self.state.scale_factor = 1.0

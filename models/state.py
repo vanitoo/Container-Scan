@@ -24,6 +24,8 @@ class AppState:
     original_page_image: Optional[Image.Image] = None
     image_display: Any = None
     cropped_image: Optional[Image.Image] = None
+    layout_reference_image: Optional[Image.Image] = None
+    layout_reference_box: Optional[tuple] = None
 
     # Координаты и выделение
     x_start: int = field(default_factory=lambda: DEFAULT_COORDINATES["X_START"])
@@ -56,6 +58,20 @@ class AppState:
     debug_mode: bool = False
     extra_mode: bool = False
     recognition_mode: int = 0
+    advanced_options: Dict[str, Any] = field(default_factory=lambda: {
+        "grayscale": {"enabled": True},
+        "median_blur": {"enabled": True, "kernel": 3},
+        "clahe": {"enabled": True, "clip_limit": 2.0, "grid_size": 8},
+        "thresholding": {"enabled": False},
+        "resize": {"enabled": True, "factor": 2.0},
+        "deskew": {"enabled": False},
+        "noise_removal": {"enabled": True, "kernel": 3},
+        "morphological_ops": {"enabled": False, "kernel": 1, "iterations": 1},
+    })
+    advanced_order: List[str] = field(default_factory=lambda: [
+        "grayscale", "median_blur", "clahe", "thresholding",
+        "resize", "deskew", "noise_removal", "morphological_ops",
+    ])
 
     # Флаги
     download_cancelled: bool = False

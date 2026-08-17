@@ -1,6 +1,7 @@
 # gui/main_window.py
 from __future__ import annotations
 
+import os
 import sys
 import threading
 import tkinter as tk
@@ -70,6 +71,105 @@ class MainWindow:
             return
 
         messagebox.showerror("Ошибка", "Не удалось повернуть текущую страницу.")
+
+    def analyze_layout(self):
+        """Align the current page to the reference form and transfer its selected area."""
+        if (
+            not self.state.pdf_doc
+            or not self.state.original_page_image
+            or not self.state.layout_reference_image
+            or not self.state.layout_reference_box
+        ):
+            messagebox.showwarning("Нет документа", "Сначала выберите PDF-файл.")
+            return
+
+        self.btn_analyze_layout.config(state=tk.DISABLED)
+        self.components["status"].update_status(msg="Геометрическое сопоставление страницы...")
+        reference_image = self.state.layout_reference_image.copy()
+        reference_box = self.state.layout_reference_box
+        page_image = self.state.original_page_image.copy()
+        threading.Thread(
+            target=self._analyze_layout_worker,
+            args=(reference_image, page_image, reference_box),
+            daemon=True,
+        ).start()
+
+    def _analyze_layout_worker(self, reference_image, page_image, reference_box):
+        try:
+            result = self.app.pdf_service.align_area_to_reference(
+                reference_image,
+                page_image,
+                reference_box,
+            )
+            self.root.after(0, self._apply_layout_analysis, result)
+        except Exception as e:
+            logger.error(f"Ошибка анализа разметки: {e}", exc_info=True)
+            self.root.after(0, self._layout_analysis_failed, str(e))
+
+    def _apply_layout_analysis(self, result):
+        self.btn_analyze_layout.config(state=tk.NORMAL)
+        if not result:
+            self.components["status"].update_status(msg="Не удалось сопоставить разметку страницы")
+            messagebox.showwarning(
+                "Анализ разметки",
+                "Не удалось геометрически сопоставить текущую страницу с первой страницей PDF.",
+            )
+            return
+
+        x1, y1, x2, y2 = result["box"]
+        scale = self.state.scale_factor
+        self.state.x_start = round(x1 * scale)
+        self.state.y_start = round(y1 * scale)
+        self.state.x_end = round(x2 * scale)
+        self.state.y_end = round(y2 * scale)
+
+        image_width, image_height = self.state.original_page_image.size
+        self.state.selection_rect_norm = (
+            x1 / image_width,
+            y1 / image_height,
+            x2 / image_width,
+            y2 / image_height,
+        )
+        self.state.selected_areas = [
+            (
+                self.state.rect_id,
+                self.state.x_start,
+                self.state.y_start,
+                self.state.x_end,
+                self.state.y_end,
+            )
+        ]
+        self.components["canvas"].draw_selection()
+        self.components["status"].update_status(
+            msg=f"Область перенесена по разметке ({result['inliers']} совпадений)"
+        )
+        logger.info(
+            f"Анализ разметки: {result['inliers']}/{result['matches']} геометрических совпадений, координаты canvas "
+            f"{self.state.x_start},{self.state.y_start},{self.state.x_end},{self.state.y_end}"
+        )
+
+    def _layout_analysis_failed(self, error: str):
+        self.btn_analyze_layout.config(state=tk.NORMAL)
+        self.components["status"].update_status(msg="Ошибка анализа разметки")
+        messagebox.showerror("Анализ разметки", f"Не удалось выполнить анализ: {error}")
+
+    def _capture_layout_reference(self):
+        """Store the first rendered page and its configured selection as a layout reference."""
+        if not self.state.original_page_image or self.state.scale_factor <= 0:
+            return
+
+        inverse_scale = 1 / self.state.scale_factor
+        self.state.layout_reference_image = self.state.original_page_image.copy()
+        self.state.layout_reference_box = (
+            round(self.state.x_start * inverse_scale),
+            round(self.state.y_start * inverse_scale),
+            round(self.state.x_end * inverse_scale),
+            round(self.state.y_end * inverse_scale),
+        )
+        logger.info(
+            "Сохранён эталон разметки первой страницы: "
+            f"{self.state.layout_reference_box}"
+        )
 
     def _load_and_display_page(self):
         """Загрузка и отображение текущей страницы"""
@@ -213,6 +313,9 @@ class MainWindow:
         btn_rotate_right = ttk.Button(
             frame_left, text="90° ↷", command=lambda: self.rotate_page(90), width=button_width
         )
+        self.btn_analyze_layout = ttk.Button(
+            frame_left, text="Анализ", command=self.analyze_layout, width=button_width
+        )
         btn_check = ttk.Button(frame_left, text="Проверить лист", command=self.check_image, width=button_width)
         btn_save_page = ttk.Button(frame_left, text="Сохранить лист", command=self.save_current_page,
                                    width=button_width)
@@ -221,6 +324,7 @@ class MainWindow:
         btn_next.pack(side=tk.LEFT, padx=4, pady=2)
         btn_rotate_left.pack(side=tk.LEFT, padx=4, pady=2)
         btn_rotate_right.pack(side=tk.LEFT, padx=4, pady=2)
+        self.btn_analyze_layout.pack(side=tk.LEFT, padx=4, pady=2)
         btn_check.pack(side=tk.LEFT, padx=4, pady=2)
         btn_save_page.pack(side=tk.LEFT, padx=4, pady=2)
 
@@ -297,6 +401,8 @@ class MainWindow:
 
                     # Загружаем и отображаем страницу
                     if self.app.pdf_service.load_page() and self.app.pdf_service.create_display_image():
+                        self._capture_layout_reference()
+                        self.components["canvas"].show_recognition_result(None)
                         self.components['canvas'].display_image()
                         self._build_table_from_pdf()
                         self.components['status'].update_status(
@@ -322,6 +428,8 @@ class MainWindow:
 
                     # Загружаем и отображаем страницу
                     if self.app.pdf_service.load_page() and self.app.pdf_service.create_display_image():
+                        self._capture_layout_reference()
+                        self.components["canvas"].show_recognition_result(None)
                         self.components['canvas'].display_image()
                         self._build_table_from_pdf()
                         self.components['status'].update_status(
@@ -370,6 +478,8 @@ class MainWindow:
                 "recognized": "",
                 "xls_id": ""
             })
+
+        self.components["table"].update_match_summary()
 
         logger.info(f"Построена таблица для {self.state.pdf_doc.page_count} страниц")
 
@@ -440,6 +550,7 @@ class MainWindow:
             self.tree.item(item_id, values=tuple(values), tags=())
 
         if not match_results:
+            self.components["table"].update_match_summary()
             return
 
         self.tree.tag_configure("exact_match", background="#a8e6a8")
@@ -459,9 +570,50 @@ class MainWindow:
             values[5] = f'{result.get("best_score", 0.0):.2f}'
             self.tree.item(item_id, values=tuple(values), tags=(result.get("tag", "no_match"),))
 
+        self.components["table"].update_match_summary()
+
     def save_results(self, btn):
         btn.config(state=tk.DISABLED)
         threading.Thread(target=self._save_results_worker, args=(btn,), daemon=True).start()
+
+    def _show_save_summary(self, output_dir: Path, message: str, has_errors: bool):
+        """Show save totals with a button that opens the result directory."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Сохранение завершено с ошибками" if has_errors else "Сохранено")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        ttk.Label(
+            dialog,
+            text=message,
+            justify=tk.LEFT,
+            padding=(16, 14),
+        ).pack(fill=tk.BOTH, expand=True)
+
+        buttons = ttk.Frame(dialog)
+        buttons.pack(fill=tk.X, padx=12, pady=(0, 12))
+
+        def open_results_folder():
+            try:
+                os.startfile(str(output_dir.resolve()))
+            except Exception as error:
+                messagebox.showerror(
+                    "Ошибка",
+                    f"Не удалось открыть папку:\n{error}",
+                    parent=dialog,
+                )
+
+        ttk.Button(buttons, text="ОК", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(buttons, text="Открыть папку", command=open_results_folder).pack(
+            side=tk.RIGHT, padx=(0, 6)
+        )
+        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialog.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
 
     def _save_results_worker(self, btn):
         """Рабочий процесс сохранения всех результатов с окном прогресса."""
@@ -514,12 +666,20 @@ class MainWindow:
                 if ui.get("lab") is not None:
                     ui["lab"].set(text)
 
-            def _close_progress_ok(output_dir: Path):
+            def _close_progress_ok(output_dir: Path, saved_count: int, failed_pages: list[int], total: int):
                 try:
                     if ui.get("win"):
                         ui["win"].destroy()
                 finally:
-                    messagebox.showinfo("Сохранено", f"Результаты сохранены в папку:\n{output_dir}")
+                    failed_count = len(failed_pages)
+                    message = (
+                        f"Успешно сохранено листов: {saved_count} из {total}\n"
+                        f"Ошибок сохранения: {failed_count}\n\n"
+                        f"Папка:\n{output_dir}"
+                    )
+                    if failed_pages:
+                        message += "\n\nНе сохранены страницы: " + ", ".join(map(str, failed_pages))
+                    self._show_save_summary(output_dir, message, bool(failed_pages))
                     btn.config(state=tk.NORMAL)
 
             def _close_progress_err(msg: str):
@@ -537,6 +697,8 @@ class MainWindow:
             output_dir = Path(self.state.pdf_path).parent
 
             total = len(self.state.table_entries)
+            saved_count = 0
+            failed_pages = []
             for i, entry in enumerate(self.state.table_entries):
                 try:
                     page_num = entry["index"] - 1
@@ -574,6 +736,7 @@ class MainWindow:
 
                     # Сохраняем основное изображение
                     page_image.save(f"{output_file}.jpg")
+                    saved_count += 1
 
                     # Debug-дампы: кроп и _info.txt
                     if self.state.debug_mode:
@@ -602,6 +765,7 @@ class MainWindow:
                                 logger.error(f"Не удалось сохранить _info.txt: {e_info}", exc_info=True)
 
                 except Exception as page_err:
+                    failed_pages.append(i + 1)
                     logger.error(f"Не удалось сохранить страницу {i + 1}: {page_err}", exc_info=True)
 
                 # Обновление прогресса (в главном потоке)
@@ -610,7 +774,11 @@ class MainWindow:
                 self.root.after(0, _update_progress, percent, text)
 
             # Закрываем окно прогресса — успех
-            self.root.after(0, lambda d=output_dir: _close_progress_ok(d))
+            self.root.after(
+                0,
+                lambda d=output_dir, saved=saved_count, failed=failed_pages, count=total:
+                    _close_progress_ok(d, saved, failed, count),
+            )
 
         except Exception as e:
             logger.error(f"Ошибка сохранения: {e}", exc_info=True)
@@ -670,6 +838,7 @@ class MainWindow:
                 logger.info(result["raw_text"])
                 logger.info("\n--- Форматированный текст ---")
                 logger.info(result["formatted_text"])
+                self.components["canvas"].show_recognition_result(result)
 
             messagebox.showinfo("Успех", f"Страница {self.state.current_page + 1} распознана: {recognized_text}")
 
@@ -840,7 +1009,7 @@ class MainWindow:
                 progress = (page_num / total_pages) * 100
                 self.root.after(0, lambda p=progress: progress_var.set(p))
 
-                # Распознаем страницу
+                # Fast mass mode uses the same selected coordinates on every page.
                 recognized_text = self.app.ocr_service.recognize_area(page_num, coords)
 
                 # Обновляем таблицу в основном потоке
@@ -861,6 +1030,11 @@ class MainWindow:
             current_values = list(self.tree.item(item_id, "values"))
             current_values[3] = recognized_text  # recognized column
             self.tree.item(item_id, values=current_values)
+
+        if page_num < len(self.state.recognition_results):
+            self.components["canvas"].show_recognition_result(
+                self.state.recognition_results[page_num]
+            )
 
     def _recognition_completed(self, progress_window, total_pages):
         """Завершение распознавания"""
@@ -891,6 +1065,7 @@ class MainWindow:
             variable=self.recognition_mode,
             command=self._update_recognition_mode
         )
+        self.adv_checkbutton = adv_checkbutton
         debug_checkbutton = ttk.Checkbutton(
             frame_left_extra,
             text="Debug",
@@ -965,6 +1140,100 @@ class MainWindow:
         self.state.recognition_mode = self.recognition_mode.get()
         mode_text = "Advance" if self.state.recognition_mode == 1 else "Basic"
         logger.info(f"Режим распознавания изменен на: {mode_text}")
+        if self.state.recognition_mode == 1:
+            self._show_advanced_settings()
+
+    def _show_advanced_settings(self):
+        """Show configurable OCR preprocessing stages and their execution order."""
+        existing = getattr(self, "advanced_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            return
+
+        window = tk.Toplevel(self.root)
+        self.advanced_window = window
+        window.title("Настройки Advance OCR")
+        window.resizable(False, False)
+        ttk.Label(
+            window,
+            text="Этапы выполняются сверху вниз. Выберите этап и меняйте порядок.",
+        ).grid(row=0, column=0, columnspan=6, padx=10, pady=(10, 6), sticky="w")
+
+        names = {
+            "grayscale": "Оттенки серого",
+            "median_blur": "Медианное размытие",
+            "clahe": "Контраст CLAHE",
+            "thresholding": "Бинаризация Otsu",
+            "resize": "Увеличение",
+            "deskew": "Выравнивание наклона",
+            "noise_removal": "Удаление шума",
+            "morphological_ops": "Морфология",
+        }
+        stages = tk.Listbox(window, width=27, height=8, exportselection=False)
+        stages.grid(row=1, column=0, rowspan=9, padx=(10, 6), pady=4, sticky="ns")
+        for key in self.state.advanced_order:
+            stages.insert(tk.END, names[key])
+        stages.selection_set(0)
+
+        enabled_vars = {}
+        value_vars = {}
+        specs = {
+            "median_blur": [("kernel", "Ядро", 3, 15, 2)],
+            "clahe": [("clip_limit", "Сила", 0.1, 10.0, 0.1), ("grid_size", "Сетка", 1, 32, 1)],
+            "resize": [("factor", "Масштаб", 0.5, 5.0, 0.25)],
+            "noise_removal": [("kernel", "Ядро", 3, 15, 2)],
+            "morphological_ops": [("kernel", "Ядро", 1, 9, 1), ("iterations", "Повторы", 1, 5, 1)],
+        }
+        for row, key in enumerate(self.state.advanced_order, start=1):
+            config = self.state.advanced_options[key]
+            enabled_vars[key] = tk.BooleanVar(value=config.get("enabled", False))
+            ttk.Checkbutton(window, text=names[key], variable=enabled_vars[key]).grid(
+                row=row, column=1, padx=4, pady=2, sticky="w"
+            )
+            for offset, (parameter, label, minimum, maximum, increment) in enumerate(specs.get(key, [])):
+                ttk.Label(window, text=label).grid(row=row, column=2 + offset * 2, padx=(5, 2), sticky="e")
+                current = config.get(parameter)
+                variable = tk.DoubleVar(value=current) if isinstance(current, float) else tk.IntVar(value=current)
+                value_vars[(key, parameter)] = variable
+                ttk.Spinbox(
+                    window, from_=minimum, to=maximum, increment=increment,
+                    textvariable=variable, width=6,
+                ).grid(row=row, column=3 + offset * 2, padx=(2, 5), sticky="w")
+
+        def move(direction):
+            selection = stages.curselection()
+            if not selection:
+                return
+            old = selection[0]
+            new = max(0, min(len(self.state.advanced_order) - 1, old + direction))
+            if old == new:
+                return
+            self.state.advanced_order[old], self.state.advanced_order[new] = (
+                self.state.advanced_order[new], self.state.advanced_order[old]
+            )
+            label = stages.get(old)
+            stages.delete(old)
+            stages.insert(new, label)
+            stages.selection_set(new)
+
+        def save():
+            try:
+                for key, variable in enabled_vars.items():
+                    self.state.advanced_options[key]["enabled"] = variable.get()
+                for (key, parameter), variable in value_vars.items():
+                    self.state.advanced_options[key][parameter] = variable.get()
+                logger.info("Настройки Advance OCR сохранены")
+                window.destroy()
+            except tk.TclError:
+                messagebox.showerror(
+                    "Advance OCR", "Проверьте числовые значения параметров.", parent=window
+                )
+
+        buttons = ttk.Frame(window)
+        buttons.grid(row=10, column=0, columnspan=6, padx=10, pady=10, sticky="ew")
+        ttk.Button(buttons, text="Выше", command=lambda: move(-1)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(buttons, text="Ниже", command=lambda: move(1)).pack(side=tk.LEFT, padx=3)
+        ttk.Button(buttons, text="Сохранить", command=save).pack(side=tk.RIGHT, padx=3)
 
     def _update_debug_mode(self):
         """Обновление режима отладки"""

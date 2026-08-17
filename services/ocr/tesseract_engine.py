@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
+import cv2
+import numpy as np
 import pytesseract
 
 from config import TESSERACT_PATHS
@@ -50,6 +53,56 @@ class TesseractEngine(OCRBackend):
             return EngineInitResult(False, self.name, message, self.install_hint)
 
     def recognize(self, image) -> str:
+        data = pytesseract.image_to_data(
+            image,
+            lang="eng",
+            config="--psm 11",
+            output_type=pytesseract.Output.DICT,
+        )
+
+        candidates = []
+        for index, text in enumerate(data["text"]):
+            cleaned = re.sub(r"[^A-Z0-9]", "", text.upper())
+            if re.fullmatch(r"[A-Z]{3}U\d{7}", cleaned):
+                return cleaned
+            if re.match(r"^[A-Z]{3}U", cleaned) and 9 <= len(cleaned) <= 13:
+                candidates.append(index)
+
+        source = np.asarray(image)
+        if source.ndim == 3:
+            # PDFService returns OpenCV images in BGR order.
+            source = cv2.cvtColor(source, cv2.COLOR_BGR2GRAY)
+
+        for index in candidates:
+            x = int(data["left"][index])
+            y = int(data["top"][index])
+            width = int(data["width"][index])
+            height = int(data["height"][index])
+            padding_x = max(4, round(width * 0.08))
+            padding_y = max(3, round(height * 0.25))
+            word_image = source[
+                max(0, y - padding_y):min(source.shape[0], y + height + padding_y),
+                max(0, x - padding_x):min(source.shape[1], x + width + padding_x),
+            ]
+            if word_image.size == 0:
+                continue
+
+            word_image = cv2.resize(word_image, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
+            _, word_image = cv2.threshold(
+                word_image,
+                0,
+                255,
+                cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+            )
+            retry = pytesseract.image_to_string(
+                word_image,
+                lang="eng",
+                config="--psm 7 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
+            ).strip()
+            cleaned_retry = re.sub(r"[^A-Z0-9]", "", retry.upper())
+            if cleaned_retry:
+                return cleaned_retry
+
         return pytesseract.image_to_string(image, lang="eng").strip()
 
     def recognize_advanced(self, image, **kwargs) -> str:

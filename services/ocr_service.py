@@ -141,14 +141,8 @@ class OCRService:
             if self.state.recognition_mode == 1:  # Advance режим
                 recognized_text = self.enhanced_recognition(
                     cropped_image,
-                    use_grayscale=True,
-                    use_median_blur=True,
-                    use_thresholding=True,
-                    use_clahe=True,
-                    use_resize=True,
-                    use_deskew=True,
-                    use_noise_removal=True,
-                    use_morphological_ops=True
+                    options=self.state.advanced_options,
+                    order=self.state.advanced_order,
                 )
             else:
                 recognized_text = self.recognize_with_engine(cropped_image)
