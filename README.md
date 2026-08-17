@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://github.com/vanitoo/container-scan/actions/workflows/ci.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/ci.yml/badge.svg?branch=master" alt="Python CI"></a>
-  <a href="https://github.com/vanitoo/container-scan/actions/workflows/build_ver.yaml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/build_ver.yaml/badge.svg" alt="Build EXE"></a>
+  <a href="https://github.com/vanitoo/container-scan/actions/workflows/build-check.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/build-check.yml/badge.svg?branch=master" alt="Build EXE"></a>
   <a href="https://github.com/vanitoo/container-scan/actions/workflows/pip-audit.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/pip-audit.yml/badge.svg?branch=master" alt="pip-audit"></a>
   <a href="https://github.com/vanitoo/container-scan/actions/workflows/codeql.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/codeql.yml/badge.svg?branch=master" alt="CodeQL"></a>
   <a href="https://github.com/vanitoo/container-scan/actions/workflows/bandit.yml"><img src="https://github.com/vanitoo/container-scan/actions/workflows/bandit.yml/badge.svg?branch=master" alt="Bandit"></a>
@@ -221,12 +221,25 @@ poetry run ruff check .
 poetry run ruff format .
 ```
 
-Проверка зависимостей и безопасности:
+Проверка тестов и безопасности:
 
 ```bash
+poetry run pytest
+poetry run bandit -r src/pdf_ocr_app -ll
 poetry run pip-audit
-poetry run bandit -r src
 ```
+
+## CI и безопасность
+
+При каждом push в `master` и для pull request независимые GitHub Actions запускаются параллельно:
+
+- **Python CI** — критические проверки Ruff, компиляция, импорт пакета и pytest;
+- **Build EXE** — контрольная сборка Windows EXE через PyInstaller;
+- **Bandit** — статический анализ безопасности Python-кода;
+- **pip-audit** — проверка установленных зависимостей на известные уязвимости;
+- **CodeQL** — углублённый анализ кода средствами GitHub Code Scanning.
+
+Статус каждой проверки отображается отдельным badge в начале README. Релизная сборка остаётся отдельным workflow и запускается только при публикации тега версии.
 
 ## Релиз
 
