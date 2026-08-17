@@ -47,6 +47,30 @@ class MainWindow:
         else:
             messagebox.showinfo("Информация", "Это последняя страница")
 
+    def rotate_page(self, degrees: int):
+        """Rotate the current page 90 degrees and refresh its preview."""
+        if not self.state.pdf_doc:
+            messagebox.showwarning("Нет документа", "Сначала выберите PDF-файл.")
+            return
+
+        if (
+            self.app.pdf_service.rotate_current_page(degrees)
+            and self.app.pdf_service.create_display_image()
+        ):
+            self.state.cropped_image = None
+            canvas = self.components["canvas"]
+            canvas.display_image()
+            canvas.canvas2.delete("all")
+            direction = "вправо" if degrees > 0 else "влево"
+            self.components["status"].update_status(
+                page=self.state.current_page + 1,
+                total=self.state.total_pages,
+                msg=f"Страница повернута {direction} на 90°",
+            )
+            return
+
+        messagebox.showerror("Ошибка", "Не удалось повернуть текущую страницу.")
+
     def _load_and_display_page(self):
         """Загрузка и отображение текущей страницы"""
         try:
@@ -183,12 +207,20 @@ class MainWindow:
         button_width = 16
         btn_prev = ttk.Button(frame_left, text="← Назад", command=self.prev_page, width=button_width)
         btn_next = ttk.Button(frame_left, text="Вперед →", command=self.next_page, width=button_width)
+        btn_rotate_left = ttk.Button(
+            frame_left, text="↶ 90°", command=lambda: self.rotate_page(-90), width=button_width
+        )
+        btn_rotate_right = ttk.Button(
+            frame_left, text="90° ↷", command=lambda: self.rotate_page(90), width=button_width
+        )
         btn_check = ttk.Button(frame_left, text="Проверить лист", command=self.check_image, width=button_width)
         btn_save_page = ttk.Button(frame_left, text="Сохранить лист", command=self.save_current_page,
                                    width=button_width)
 
         btn_prev.pack(side=tk.LEFT, padx=4, pady=2)
         btn_next.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_rotate_left.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_rotate_right.pack(side=tk.LEFT, padx=4, pady=2)
         btn_check.pack(side=tk.LEFT, padx=4, pady=2)
         btn_save_page.pack(side=tk.LEFT, padx=4, pady=2)
 

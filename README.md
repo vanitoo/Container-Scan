@@ -221,6 +221,15 @@ services/ocr/
 
 ## Разработка
 
+Релизная сборка запускается только после создания тега скриптом:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\release.ps1 2.0.5
+```
+
+Перед запуском рабочее дерево должно быть чистым. Скрипт обновит версии в `version.py` и `pyproject.toml`, обновит
+`poetry.lock`, создаст release-коммит и тег `v2.0.5`, затем отправит их в GitHub.
+
 Проверка Ruff:
 
 ```bash

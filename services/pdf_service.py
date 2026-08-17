@@ -65,6 +65,21 @@ class PDFService:
             return self.load_page()
         return False
 
+    def rotate_current_page(self, degrees: int) -> bool:
+        """Rotate the current PDF page 90 degrees left or right."""
+        if not self.state.pdf_doc or degrees not in (-90, 90):
+            return False
+
+        try:
+            page = self.state.pdf_doc.load_page(self.state.current_page)
+            page.set_rotation((page.rotation + degrees) % 360)
+            direction = "вправо" if degrees > 0 else "влево"
+            logger.info(f"Страница {self.state.current_page + 1} повернута {direction} на 90°")
+            return self.load_page()
+        except Exception as e:
+            logger.error(f"Ошибка поворота страницы {self.state.current_page + 1}: {e}")
+            return False
+
     def load_page(self) -> bool:
         """Загрузка текущей страницы"""
         if not self.state.pdf_doc:

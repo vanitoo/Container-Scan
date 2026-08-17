@@ -2,9 +2,8 @@ name: Build and Release - ver .exe
 
 on:
   push:
-    branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    tags:
+      - "v*.*.*"
 
 permissions:
   contents: write  # нужно для создания релизов/тегов
@@ -49,8 +48,18 @@ jobs:
         id: get_version
         shell: pwsh
         run: |
-          $version = (Get-Content version.py | Select-String '__version__ = "(.*)"').Matches.Groups[1].Value
-          echo "version=$version" >> $env:GITHUB_OUTPUT
+          $appVersion = (Get-Content version.py | Select-String '__version__ = "(.*)"').Matches.Groups[1].Value
+          $projectVersion = (poetry version --short).Trim()
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+
+          if ($appVersion -ne $tagVersion) {
+            throw "Tag $tagVersion does not match version.py $appVersion"
+          }
+          if ($projectVersion -ne $tagVersion) {
+            throw "Tag $tagVersion does not match pyproject.toml $projectVersion"
+          }
+
+          "version=$tagVersion" >> $env:GITHUB_OUTPUT
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
@@ -72,27 +81,10 @@ jobs:
         id: create_release
         shell: pwsh
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $version = "${{ steps.get_version.outputs.version }}"
           $release_tag = "v$version"
-
-          # Настроим git user, чтобы пушить тег из CI
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          # Проверка существования тега
-          $existing_tags = git ls-remote --tags origin | ForEach-Object { $_ -replace '.*/(v\d+\.\d+\.\d+)$', '$1' }
-
-          if ($existing_tags -contains $release_tag) {
-            Write-Host "Tag $release_tag already exists. Using existing tag."
-          } else {
-            Write-Host "Creating new tag: $release_tag"
-            git tag $release_tag
-            git push origin $release_tag
-          }
-
-          # Создание релиза с загрузкой файла
           gh release create $release_tag dist/main.exe --title "Release $release_tag" --notes "Release notes for $release_tag"
 
       - name: Create GitHub Release in another repository
