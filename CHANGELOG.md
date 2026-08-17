@@ -1,6 +1,15 @@
 Changelog
 ## [unreleased]
 
+### 🐛 Bug Fixes
+
+- Synchronize release branch before push
+
+### ⚙️ Miscellaneous Tasks
+
+- Update CHANGELOG.md [skip ci]
+## [2.0.5] - 2026-08-17
+
 ### 🚀 Features
 
 - Add page rotation functionality and release script
