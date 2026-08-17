@@ -1,32 +1,36 @@
-# .github/workflows/pip-audit.yml
-# Экшен упадёт, если найдёт уязвимости — удобно для блокировки небезопасных PR
-
 name: pip-audit
 
 on:
-  pull_request:
-    paths: ["pyproject.toml", "poetry.lock"]
   push:
     branches: [master]
-    paths: ["pyproject.toml", "poetry.lock"]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
 
-# Минимальные права согласно принципу least privilege
 permissions:
   contents: read
-  pull-requests: read
-  checks: write
+
+concurrency:
+  group: audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+
       - name: Install Poetry
         run: pipx install "poetry>=2.0,<3"
+
       - name: Install locked dependencies
         run: poetry install --with dev --no-root --no-interaction
+
       - name: Audit installed dependencies
         run: poetry run pip-audit
