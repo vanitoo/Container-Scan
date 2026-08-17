@@ -1,6 +1,6 @@
 [project]
 name = "pythonproject-opencv-pdf"
-version = "2.0.4"
+version = "2.0.5"
 description = "Распознавание текста из PDF"
 authors = [
     {name = "vanitoo",email = "56897888+vanitoo@users.noreply.github.com"}
