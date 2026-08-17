@@ -1,5 +1,5 @@
 opencv-python~=4.10.0
-PyMuPDF~=1.26.5
+PyMuPDF~=1.26.7
 openpyxl~=3.1.5
 pytesseract~=0.3.13
 requests~=2.32.5
