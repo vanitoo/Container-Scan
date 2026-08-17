@@ -8,7 +8,7 @@ from .base import EngineInitResult, OCRBackend
 class PaddleOCREngine(OCRBackend):
     name = "PaddleOCR"
     module_name = "paddleocr"
-    install_hint = "Установить PaddleOCR можно командой: pip install paddleocr"
+    install_hint = "Добавить PaddleOCR в проект можно командой: poetry add paddleocr"
 
     def is_installed(self) -> bool:
         return importlib.util.find_spec(self.module_name) is not None

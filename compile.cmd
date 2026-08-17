@@ -1,30 +1,17 @@
 @echo off
 title %cd%
 
-if not exist .venv (
-    echo Creating virtual environment...
-    python -m venv .venv
+where poetry >nul 2>&1
+if errorlevel 1 (
+    echo Poetry is not installed. Run: pipx install poetry
+    pause
+    exit /b 1
 )
 
-echo Activating virtual environment...
-call .venv\Scripts\activate
+poetry install --with dev --no-root --no-interaction
+if errorlevel 1 exit /b 1
 
-if not exist .venv\Lib\site-packages\installed (
-    if exist requirements.txt (
-        echo Installing dependencies...
-        pip install -r requirements.txt
-		python.exe -m pip install --upgrade pip
-		pip install pyinstaller
-
-        echo. > .venv\Lib\site-packages\installed
-    ) else (
-        echo requirements.txt not found, skipping dependency installation.
-    )
-) else (
-    echo Dependencies already installed, skipping installation.
-)
-
-pyinstaller --onefile --windowed --clean --strip main.py
+poetry run pyinstaller --onefile --windowed --clean --name main app.py
 
 
 echo done

@@ -583,7 +583,7 @@ class MainWindow:
         except Exception as e:
             logger.error(f"Ошибка сохранения: {e}", exc_info=True)
             # Закрываем окно прогресса — ошибка
-            self.root.after(0, lambda: _close_progress_err(f"Ошибка при сохранении: {e!s}"))
+            self.root.after(0, lambda error=e: _close_progress_err(f"Ошибка при сохранении: {error!s}"))
 
     def _save_results_completed(self, btn, output_dir):
         """Завершение сохранения результатов"""

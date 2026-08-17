@@ -37,7 +37,8 @@ OpenCV PDF Text Recognizer — настольное Python-приложение 
 ## Установка
 
 ```bash
-pip install -r requirements.txt
+pipx install poetry
+poetry install --no-root
 ```
 
 Также отдельно должен быть установлен Tesseract OCR.
@@ -56,13 +57,13 @@ C:/Program Files (x86)/Tesseract-OCR/tesseract.exe
 ## Запуск
 
 ```bash
-python run.py
+poetry run python run.py
 ```
 
 или:
 
 ```bash
-python app.py
+poetry run python app.py
 ```
 
 ---
@@ -223,19 +224,19 @@ services/ocr/
 Проверка Ruff:
 
 ```bash
-ruff check .
+poetry run ruff check .
 ```
 
 Форматирование:
 
 ```bash
-ruff format .
+poetry run ruff format .
 ```
 
 После добавления тестов:
 
 ```bash
-pytest
+poetry run pytest
 ```
 
 ---

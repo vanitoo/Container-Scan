@@ -8,7 +8,7 @@ from .base import EngineInitResult, OCRBackend
 class EasyOCREngine(OCRBackend):
     name = "EasyOCR"
     module_name = "easyocr"
-    install_hint = "Установить EasyOCR можно командой: pip install easyocr"
+    install_hint = "Добавить EasyOCR в проект можно командой: poetry add easyocr"
 
     def is_installed(self) -> bool:
         return importlib.util.find_spec(self.module_name) is not None

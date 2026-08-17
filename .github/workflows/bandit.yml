@@ -8,4 +8,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - run: pipx install bandit && bandit -r .
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - name: Install Poetry
+        run: pipx install "poetry>=2.0,<3"
+      - name: Install locked dependencies
+        run: poetry install --with dev --no-root --no-interaction
+      - name: Run Bandit
+        run: poetry run bandit -r .

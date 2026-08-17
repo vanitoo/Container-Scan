@@ -23,14 +23,12 @@ jobs:
         uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-          cache: 'pip'
-          cache-dependency-path: requirements.txt
+
+      - name: Install Poetry
+        run: pipx install "poetry>=2.0,<3"
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
-          pip install "pyinstaller>=6.3,<7"  # современная ветка без сюрпризов
+        run: poetry install --with dev --no-root --no-interaction
 
       # Делаем однострочник на PowerShell.
       - name: Print Python & SSL info
@@ -41,11 +39,11 @@ jobs:
 
       # Проверка зависимостей на конфликты
       - name: pip check
-        run: pip check
+        run: poetry run pip check
 
       # Снимок списка пакетов в артефакт (на будущее)
       - name: Export dependency snapshot
-        run: pip freeze > pip-freeze.txt
+        run: poetry run pip freeze > pip-freeze.txt
 
       - name: Get version from version.py
         id: get_version
@@ -56,7 +54,7 @@ jobs:
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
-          pyinstaller --onefile --noconsole --clean --name main --hidden-import=_ssl --collect-all=certifi app.py
+          poetry run pyinstaller --onefile --noconsole --clean --name main --hidden-import=_ssl --collect-all=certifi app.py
 
         # Пояснение:
         # --hidden-import=_ssl   → страхуем явное включение SSL-модуля

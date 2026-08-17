@@ -1,6 +1,7 @@
 # utils/updater.py
 from __future__ import annotations
-import logging
+import hashlib
+import hmac
 import sys
 import threading
 import tkinter as tk
@@ -14,11 +15,12 @@ from utils.logger import logger
 
 class AutoUpdater:
     UPDATE_URL = "https://api.github.com/repos/vanitoo/pythonProject-OpenCV-PDF/releases/latest"
-    DOWNLOAD_URL = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/download/v{version}/main.exe"
+    DOWNLOAD_URL_PREFIX = "https://github.com/vanitoo/pythonProject-OpenCV-PDF/releases/download/"
 
     def __init__(self, root):
         self.root = root
         self.download_cancelled = False
+        self.latest_asset = None
         self.add_about_button()
         self.show_version_in_title()
         if getattr(sys, 'frozen', False):
@@ -30,7 +32,27 @@ class AutoUpdater:
             logger.info(f"Запрос к {self.UPDATE_URL} для получения информации о последнем релизе...")
             response = requests.get(self.UPDATE_URL, timeout=10)
             response.raise_for_status()
-            latest = response.json()["tag_name"].lstrip("v")
+            release = response.json()
+            latest = release["tag_name"].lstrip("v")
+            self.latest_asset = next(
+                (asset for asset in release.get("assets", []) if asset.get("name") == "main.exe"),
+                None,
+            )
+            if self.latest_asset is None:
+                raise ValueError("Релиз не содержит файл main.exe")
+
+            digest = self.latest_asset.get("digest", "")
+            digest_value = digest.removeprefix("sha256:")
+            if (
+                not digest.startswith("sha256:")
+                or len(digest_value) != 64
+                or any(char not in "0123456789abcdefABCDEF" for char in digest_value)
+            ):
+                raise ValueError("GitHub Release не содержит корректный SHA-256 для main.exe")
+
+            download_url = self.latest_asset.get("browser_download_url", "")
+            if not download_url.startswith(self.DOWNLOAD_URL_PREFIX):
+                raise ValueError("GitHub Release содержит недоверенный адрес файла обновления")
             logger.info(f"Получена последняя версия: {latest}")
             return latest
         except Exception as e:
@@ -91,7 +113,13 @@ class AutoUpdater:
         popup.geometry(f"+{x}+{y}")
 
     def download_update(self, version: str):
-        url = self.DOWNLOAD_URL.format(version=version)
+        if not self.latest_asset:
+            messagebox.showerror("Ошибка обновления", "Нет проверенных метаданных файла обновления.")
+            return
+
+        url = self.latest_asset["browser_download_url"]
+        expected_digest = self.latest_asset["digest"].removeprefix("sha256:").lower()
+        expected_size = int(self.latest_asset.get("size", 0))
         progress_window = tk.Toplevel(self.root)
         progress_window.title("Загрузка обновления")
         progress_window.geometry("400x150")
@@ -116,26 +144,32 @@ class AutoUpdater:
         self.download_cancelled = False
         threading.Thread(
             target=self._download_worker,
-            args=(url, version, progress_var, status_label, progress_window),
+            args=(url, version, expected_digest, expected_size, progress_var, status_label, progress_window),
             daemon=True
         ).start()
 
-    def _download_worker(self, url: str, version: str, progress_var, status_label, progress_window):
+    def _download_worker(
+        self, url: str, version: str, expected_digest: str, expected_size: int,
+        progress_var, status_label, progress_window,
+    ):
+        exe_path = Path(sys.executable).parent / f"main_{version}.exe"
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
             total_size = int(response.headers.get('content-length', 0))
             downloaded_size = 0
-            exe_path = Path(sys.executable).parent / f"main_{version}.exe"
+            hasher = hashlib.sha256()
 
             self.root.after(0, lambda: status_label.config(text="Загрузка начата..."))
             with exe_path.open("wb") as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if self.download_cancelled:
+                        exe_path.unlink(missing_ok=True)
                         self.root.after(0, progress_window.destroy)
                         return
                     if chunk:
                         f.write(chunk)
+                        hasher.update(chunk)
                         downloaded_size += len(chunk)
                         if total_size > 0:
                             progress = (downloaded_size / total_size) * 100
@@ -144,9 +178,20 @@ class AutoUpdater:
                             total_mb = total_size / (1024 * 1024)
                             status_text = f"Загружено: {downloaded_mb:.1f} MB / {total_mb:.1f} MB ({progress:.1f}%)"
                             self.root.after(0, lambda t=status_text: status_label.config(text=t))
+            if expected_size > 0 and downloaded_size != expected_size:
+                raise ValueError(
+                    f"Размер обновления не совпадает: ожидалось {expected_size}, получено {downloaded_size} байт"
+                )
+
+            actual_digest = hasher.hexdigest()
+            if not hmac.compare_digest(actual_digest, expected_digest):
+                raise ValueError("SHA-256 обновления не совпадает с хешем GitHub Release")
+
+            logger.info(f"SHA-256 обновления проверен: {actual_digest}")
             self.root.after(0, lambda: self._download_completed(version, progress_window))
         except Exception as e:
-            self.root.after(0, lambda: self._download_failed(e, progress_window))
+            exe_path.unlink(missing_ok=True)
+            self.root.after(0, lambda error=e: self._download_failed(error, progress_window))
 
     def _download_completed(self, version: str, progress_window):
         progress_window.destroy()
