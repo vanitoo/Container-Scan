@@ -1,23 +1,19 @@
 Changelog
 ## [unreleased]
 
+### 🚀 Features
+
+- Implement OCR engine interface with Tesseract, EasyOCR, and PaddleOCR support; update initialization and recognition methods
+
 ### ⚙️ Miscellaneous Tasks
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 ## [2.0.3] - 2026-06-30
 
 ### 🚜 Refactor
 
-<<<<<<< HEAD
-- Add OCR engine interface and installation checks
-- Decouple registry and matching services from Tkinter
-- Route startup Tesseract check through GUI log
-- Add startup Tesseract check and version logging
-- Cleanup gui components imports and stale comments
-- Cleanup main window imports and stale comments
-=======
->>>>>>> 11b7acfa95fbc0066e2cf32ad3c3b98eca74e452
 - Cleanup stale excel registry loader
 - Cleanup app state comments
 - Cleanup pdf service imports and stale comments
