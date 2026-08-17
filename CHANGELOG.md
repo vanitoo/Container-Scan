@@ -6,8 +6,13 @@ Changelog
 - Add page rotation functionality and release script
 - Add layout analysis and advanced OCR settings
 
+### 💼 Other
+
+- 2.0.5
+
 ### ⚙️ Miscellaneous Tasks
 
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
