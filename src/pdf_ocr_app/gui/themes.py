@@ -1,19 +1,37 @@
 # gui/themes.py
 from __future__ import annotations
+
 import tkinter as tk
 from tkinter import ttk
+
 from pdf_ocr_app.utils.logger import logger
+
+
+def _disable_native_treeview_selection(style: ttk.Style) -> None:
+    """Let Treeview row tags control selected-row colors.
+
+    ttk themes (including sv_ttk) normally paint the selected state with their
+    own blue background. That state map has higher priority than item tags, so
+    status colors such as exact_match_selected are hidden. Removing the native
+    selected foreground/background maps keeps the real Treeview selection for
+    keyboard/focus logic while the row tags remain visually visible.
+    """
+    style.map("Treeview", background=[], foreground=[])
+
 
 def apply_minimal_theme(root, theme="light"):
     """Применение минималистичной темы"""
+    style = ttk.Style(root)
+
     try:
         import sv_ttk
+
         sv_ttk.set_theme(theme)
         logger.debug(f"sv_ttk применена: {theme}")
         use_sv = True
+        _disable_native_treeview_selection(style)
     except Exception as e:
         use_sv = False
-        style = ttk.Style(root)
         style.theme_use("clam")
         logger.debug(f"sv_ttk ошибка: {e}")
 
@@ -22,13 +40,11 @@ def apply_minimal_theme(root, theme="light"):
             FG = "#E5E7EB"
             ACCENT = "#3B82F6"
             MUTED = "#9CA3AF"
-            SEL_BG = BG  # стандартное выделение прозрачно — подсветку дают теги
         else:
             BG = "#F7F7F9"
             FG = "#111827"
             ACCENT = "#2563EB"
             MUTED = "#6B7280"
-            SEL_BG = BG  # стандартное выделение прозрачно — подсветку дают теги
 
         style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
         style.configure("TFrame", background=BG)
@@ -41,7 +57,7 @@ def apply_minimal_theme(root, theme="light"):
         style.configure("TCombobox", padding=6)
         style.configure("Treeview", borderwidth=0, rowheight=28, font=("Segoe UI", 10))
         style.configure("Treeview.Heading", font=("Segoe UI Semibold", 10), foreground=MUTED)
-        style.map("Treeview", foreground=[("selected", FG)])
+        _disable_native_treeview_selection(style)
 
     def style_treeview_stripes(tree):
         try:
@@ -67,25 +83,30 @@ def apply_minimal_theme(root, theme="light"):
         "sv_ttk": use_sv,
     }
 
+
 def toggle_theme(root):
     """Переключение темы"""
     helpers = getattr(root, "_style_helpers", {})
+    style = ttk.Style(root)
+
     if helpers.get("sv_ttk"):
         try:
             import sv_ttk
+
             sv_ttk.toggle_theme()
+            # Переключение sv_ttk восстанавливает стандартную синюю подсветку,
+            # поэтому сразу снова отдаём фон/текст выбранной строки её тегам.
+            _disable_native_treeview_selection(style)
             return
         except Exception as e:
             logger.debug(f"Ошибка при переключении темы: {e}")
 
-    style = ttk.Style(root)
     current = getattr(root, "_theme_mode", "light")
     if current == "light":
         # Тёмная тема
         BG = "#111827"
         FG = "#E5E7EB"
         MUTED = "#9CA3AF"
-        SEL_BG = BG
         TB_BG = "#0F172A"
         SEP = "#1F2937"
         style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
@@ -96,14 +117,13 @@ def toggle_theme(root):
         style.configure("ToolSep.TFrame", background=SEP)
         style.configure("Treeview", background=BG, fieldbackground=BG, foreground=FG, rowheight=28)
         style.configure("Treeview.Heading", foreground=MUTED)
-        style.map("Treeview", foreground=[("selected", FG)])
+        _disable_native_treeview_selection(style)
         root._theme_mode = "dark"
     else:
         # Светлая тема
         BG = "#F7F7F9"
         FG = "#111827"
         MUTED = "#6B7280"
-        SEL_BG = BG
         TB_BG = BG
         SEP = "#E5E7EB"
         style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
@@ -114,5 +134,5 @@ def toggle_theme(root):
         style.configure("ToolSep.TFrame", background=SEP)
         style.configure("Treeview", background=BG, fieldbackground=BG, foreground=FG, rowheight=28)
         style.configure("Treeview.Heading", foreground=MUTED)
-        style.map("Treeview", foreground=[("selected", FG)])
+        _disable_native_treeview_selection(style)
         root._theme_mode = "light"
