@@ -62,8 +62,10 @@ class MainWindow:
         ):
             self.state.cropped_image = None
             canvas = self.components["canvas"]
-            canvas.display_image()
+            # Clear the stale preview first. display_image() redraws the current
+            # selection and rebuilds canvas2 via draw_selection()/update_cropped_image().
             canvas.canvas2.delete("all")
+            canvas.display_image()
             direction = "вправо" if degrees > 0 else "влево"
             self.components["status"].update_status(
                 page=self.state.current_page + 1,
