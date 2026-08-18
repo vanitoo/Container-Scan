@@ -25,7 +25,6 @@ class MainWindow:
         self.components = {}
 
     def prev_page(self):
-        """Переход к предыдущей странице"""
         if self.app.pdf_service.prev_page() and self.app.pdf_service.create_display_image():
             self.components['canvas'].display_image()
             self._update_table_selection(self.state.current_page)
@@ -38,7 +37,6 @@ class MainWindow:
             messagebox.showinfo("Информация", "Это первая страница")
 
     def next_page(self):
-        """Переход к следующей странице"""
         if self.app.pdf_service.next_page() and self.app.pdf_service.create_display_image():
             self.components['canvas'].display_image()
             self._update_table_selection(self.state.current_page)
@@ -51,7 +49,6 @@ class MainWindow:
             messagebox.showinfo("Информация", "Это последняя страница")
 
     def rotate_page(self, degrees: int):
-        """Rotate the current page 90 degrees and refresh its preview."""
         if not self.state.pdf_doc:
             messagebox.showwarning("Нет документа", "Сначала выберите PDF-файл.")
             return
@@ -415,11 +412,7 @@ class MainWindow:
             self.tree.delete(item)
         self.state.table_entries = []
         for i in range(self.state.pdf_doc.page_count):
-            item_id = self.tree.insert(
-                "",
-                tk.END,
-                values=(i + 1, "", "", "", "", "", ""),
-            )
+            item_id = self.tree.insert("", tk.END, values=(i + 1, "", "", "", "", "", ""))
             self.state.table_entries.append({
                 "index": i + 1,
                 "item_id": item_id,
@@ -901,7 +894,7 @@ class MainWindow:
         self.frame_extra = ttk.Frame(self.root)
         frame_left_extra = ttk.Frame(self.frame_extra)
         frame_left_extra.pack(side=tk.LEFT, fill="x", expand=False)
-        self.recognition_mode = tk.IntVar(value=0)
+        self.recognition_mode = tk.IntVar(value=self.state.recognition_mode)
         self.debug_mode = tk.BooleanVar(value=False)
         self.legacy_tesseract = tk.BooleanVar(value=self.state.use_legacy_tesseract)
         self.mass_page_scale = tk.BooleanVar(value=self.state.mass_page_scale)
@@ -980,6 +973,11 @@ class MainWindow:
             if self.frame_extra.winfo_ismapped():
                 self.frame_extra.pack_forget()
 
+    def _refresh_ocr_preview(self):
+        canvas = self.components.get("canvas")
+        if canvas is not None:
+            canvas.refresh_filter_preview()
+
     def _update_recognition_mode(self):
         self.state.recognition_mode = self.recognition_mode.get()
         mode_text = "Advance" if self.state.recognition_mode == 1 else "Basic"
@@ -987,6 +985,7 @@ class MainWindow:
         self.legacy_tesseract_checkbutton.config(
             state=tk.DISABLED if self.state.recognition_mode == 1 else tk.NORMAL
         )
+        self._refresh_ocr_preview()
         if self.state.recognition_mode == 1:
             self._show_advanced_settings()
 
@@ -994,6 +993,7 @@ class MainWindow:
         self.state.use_legacy_tesseract = self.legacy_tesseract.get()
         mode = "старый 2.0.3" if self.state.use_legacy_tesseract else "новый"
         logger.info(f"Базовый алгоритм Tesseract: {mode}")
+        self._refresh_ocr_preview()
 
     def _show_advanced_settings(self):
         existing = getattr(self, "advanced_window", None)
@@ -1006,7 +1006,7 @@ class MainWindow:
         window.resizable(False, False)
         ttk.Label(
             window,
-            text="Этапы выполняются сверху вниз. Выберите этап и меняйте порядок.",
+            text="Этапы выполняются сверху вниз. Изменения сразу видны в OCR-preview.",
         ).grid(row=0, column=0, columnspan=6, padx=10, pady=(10, 6), sticky="w")
         names = {
             "grayscale": "Оттенки серого",
@@ -1048,6 +1048,29 @@ class MainWindow:
                     textvariable=variable, width=6,
                 ).grid(row=row, column=3 + offset * 2, padx=(2, 5), sticky="w")
 
+        preview_after = {"id": None}
+
+        def apply_live_settings(*_args):
+            try:
+                for key, variable in enabled_vars.items():
+                    self.state.advanced_options[key]["enabled"] = variable.get()
+                for (key, parameter), variable in value_vars.items():
+                    self.state.advanced_options[key][parameter] = variable.get()
+            except tk.TclError:
+                return
+
+            if preview_after["id"] is not None:
+                try:
+                    self.root.after_cancel(preview_after["id"])
+                except tk.TclError:
+                    pass
+            preview_after["id"] = self.root.after(80, self._refresh_ocr_preview)
+
+        for variable in enabled_vars.values():
+            variable.trace_add("write", apply_live_settings)
+        for variable in value_vars.values():
+            variable.trace_add("write", apply_live_settings)
+
         def move(direction):
             selection = stages.curselection()
             if not selection:
@@ -1063,13 +1086,11 @@ class MainWindow:
             stages.delete(old)
             stages.insert(new, label)
             stages.selection_set(new)
+            apply_live_settings()
 
         def save():
             try:
-                for key, variable in enabled_vars.items():
-                    self.state.advanced_options[key]["enabled"] = variable.get()
-                for (key, parameter), variable in value_vars.items():
-                    self.state.advanced_options[key][parameter] = variable.get()
+                apply_live_settings()
                 logger.info("Настройки Advance OCR сохранены")
                 window.destroy()
             except tk.TclError:
@@ -1082,6 +1103,8 @@ class MainWindow:
         ttk.Button(buttons, text="Выше", command=lambda: move(-1)).pack(side=tk.LEFT, padx=3)
         ttk.Button(buttons, text="Ниже", command=lambda: move(1)).pack(side=tk.LEFT, padx=3)
         ttk.Button(buttons, text="Сохранить", command=save).pack(side=tk.RIGHT, padx=3)
+
+        self._refresh_ocr_preview()
 
     def _update_debug_mode(self):
         self.state.debug_mode = self.debug_mode.get()
@@ -1119,6 +1142,7 @@ class MainWindow:
             self.state.ocr_engine = result.engine
             logger.info(f"Выбран OCR движок: {result.engine}")
             messagebox.showinfo("Инфо", result.message)
+            self._refresh_ocr_preview()
             return
         self.ocr_engine_var.set(self.state.ocr_engine)
         if result.install_hint:
