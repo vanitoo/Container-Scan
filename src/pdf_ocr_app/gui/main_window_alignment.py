@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+import threading
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+from pdf_ocr_app.gui.main_window_results import MainWindow as ResultsMainWindow
+from pdf_ocr_app.utils.logger import logger
+
+
+class MainWindow(ResultsMainWindow):
+    """Experimental UI for homography-based form alignment."""
+
+    def _create_main_toolbar(self):
+        frame_main = ttk.Frame(self.root)
+        frame_main.pack(pady=6, padx=10, fill="x")
+
+        frame_left = ttk.Frame(frame_main)
+        frame_left.pack(side=tk.LEFT, fill="x", expand=False)
+
+        button_width = 16
+        btn_prev = ttk.Button(frame_left, text="← Назад", command=self.prev_page, width=button_width)
+        btn_next = ttk.Button(frame_left, text="Вперед →", command=self.next_page, width=button_width)
+        btn_rotate_left = ttk.Button(
+            frame_left, text="↶ 90°", command=lambda: self.rotate_page(-90), width=button_width
+        )
+        btn_rotate_right = ttk.Button(
+            frame_left, text="90° ↷", command=lambda: self.rotate_page(90), width=button_width
+        )
+        self.btn_analyze_layout = ttk.Button(
+            frame_left, text="Анализ", command=self.analyze_layout, width=button_width
+        )
+        self.btn_analyze2 = ttk.Button(
+            frame_left, text="Анализ2", command=self.analyze_layout_v2, width=button_width
+        )
+        btn_check = ttk.Button(frame_left, text="Проверить лист", command=self.check_image, width=button_width)
+        btn_save_page = ttk.Button(
+            frame_left,
+            text="Сохранить лист",
+            command=self.save_current_page,
+            width=button_width,
+        )
+
+        btn_prev.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_next.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_rotate_left.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_rotate_right.pack(side=tk.LEFT, padx=4, pady=2)
+        self.btn_analyze_layout.pack(side=tk.LEFT, padx=4, pady=2)
+        self.btn_analyze2.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_check.pack(side=tk.LEFT, padx=4, pady=2)
+        btn_save_page.pack(side=tk.LEFT, padx=4, pady=2)
+
+        ttk.Separator(frame_main, orient="vertical").pack(side=tk.LEFT, fill="y", padx=8)
+        self.frame_main = frame_main
+
+        frame_right = ttk.Frame(frame_main)
+        frame_right.pack(side=tk.RIGHT, fill=tk.X, expand=False)
+
+        self.extra_mode = tk.BooleanVar(value=False)
+        options_btn = ttk.Checkbutton(
+            frame_right,
+            text="Options",
+            variable=self.extra_mode,
+            command=self.toggle_extra_options,
+        )
+        options_btn.pack(side=tk.LEFT, padx=6)
+        ttk.Button(
+            frame_right,
+            text="О программе",
+            command=lambda: self.updater.show_about(),
+        ).pack(side=tk.LEFT, padx=(4, 0))
+
+    def analyze_layout_v2(self):
+        """Align current scan to the reference page and OCR the reference field."""
+        if (
+            not self.state.pdf_doc
+            or self.state.layout_reference_image is None
+            or self.state.layout_reference_box is None
+        ):
+            messagebox.showwarning(
+                "Анализ2",
+                "Нет эталона разметки. Загрузите PDF и задайте область на первой странице.",
+            )
+            return
+
+        self.btn_analyze2.config(state=tk.DISABLED)
+        self.components["status"].update_status(msg="Анализ2: геометрическая привязка...")
+
+        page_index = self.state.current_page
+        reference_image = self.state.layout_reference_image.copy()
+        reference_box = tuple(self.state.layout_reference_box)
+
+        threading.Thread(
+            target=self._analyze2_worker,
+            args=(page_index, reference_image, reference_box),
+            daemon=True,
+        ).start()
+
+    def _analyze2_worker(self, page_index, reference_image, reference_box):
+        try:
+            current_image = self.app.pdf_service.render_page_image(page_index)
+            result = self.app.alignment_service.align(
+                reference_image=reference_image,
+                current_image=current_image,
+                reference_box=reference_box,
+                page_number=page_index + 1,
+            )
+            self.root.after(
+                0,
+                self._apply_analyze2_result,
+                page_index,
+                reference_box,
+                result,
+            )
+        except Exception as exc:
+            logger.error(f"Анализ2 завершился ошибкой: {exc}", exc_info=True)
+            self.root.after(0, self._analyze2_failed, str(exc))
+
+    def _apply_analyze2_result(self, page_index, reference_box, result):
+        self.btn_analyze2.config(state=tk.NORMAL)
+        self.state.alignment_results[page_index] = result
+
+        error_text = "n/a" if result.reprojection_error is None else f"{result.reprojection_error:.2f}px"
+        metrics = (
+            f"matches={result.matches}, inliers={result.inliers}, "
+            f"ratio={result.inlier_ratio:.0%}, error={error_text}"
+        )
+
+        if result.status == "FAILED" or result.aligned_image is None:
+            self.components["status"].update_status(msg=f"Анализ2 FAILED: {metrics}")
+            messagebox.showwarning(
+                "Анализ2 — требуется ручная проверка",
+                f"Выравнивание ненадёжно. OCR не запущен.\n\n{metrics}\n\n{result.message}",
+            )
+            return
+
+        self.app.pdf_service.set_aligned_page(page_index, result.aligned_image)
+        self.state.original_page_image = result.aligned_image.copy()
+        if not self.app.pdf_service.create_display_image():
+            self._analyze2_failed("Не удалось отобразить выровненное изображение")
+            return
+
+        scale = self.state.scale_factor
+        x1, y1, x2, y2 = reference_box
+        self.state.x_start = round(x1 * scale)
+        self.state.y_start = round(y1 * scale)
+        self.state.x_end = round(x2 * scale)
+        self.state.y_end = round(y2 * scale)
+        self.state.selected_areas = [
+            (
+                self.state.rect_id,
+                self.state.x_start,
+                self.state.y_start,
+                self.state.x_end,
+                self.state.y_end,
+            )
+        ]
+        self.components["canvas"].display_image()
+
+        if result.status != "GOOD":
+            self.components["status"].update_status(msg=f"Анализ2 WARNING: {metrics}")
+            messagebox.showwarning(
+                "Анализ2 — требуется ручная проверка",
+                f"Лист выровнен, но качество привязки пограничное. OCR автоматически не запущен.\n\n{metrics}",
+            )
+            return
+
+        self.components["status"].update_status(msg=f"Анализ2 GOOD: {metrics}")
+        self._run_ocr_after_alignment(page_index)
+
+    def _run_ocr_after_alignment(self, page_index: int):
+        try:
+            coords = (
+                self.state.x_start,
+                self.state.y_start,
+                self.state.x_end,
+                self.state.y_end,
+            )
+            recognized_text = self.app.ocr_service.recognize_area(page_index, coords)
+
+            if page_index < len(self.state.table_entries):
+                self.state.table_entries[page_index]["recognized"] = recognized_text
+                item_id = self.state.table_entries[page_index]["item_id"]
+                values = list(self.tree.item(item_id, "values"))
+                while len(values) < 4:
+                    values.append("")
+                values[3] = recognized_text
+                self.tree.item(item_id, values=values)
+
+            self._show_recognition_result_for_page(page_index)
+            logger.info(f"Анализ2: OCR страницы {page_index + 1}: {recognized_text}")
+            self.components["status"].update_status(
+                msg=f"Анализ2: выравнивание GOOD, OCR={recognized_text}"
+            )
+        except Exception as exc:
+            logger.error(f"Анализ2: ошибка OCR после выравнивания: {exc}", exc_info=True)
+            messagebox.showerror("Анализ2", f"Выравнивание выполнено, но OCR завершился ошибкой:\n{exc}")
+
+    def _analyze2_failed(self, error: str):
+        self.btn_analyze2.config(state=tk.NORMAL)
+        self.components["status"].update_status(msg="Анализ2: ошибка")
+        messagebox.showerror("Анализ2", f"Не удалось выполнить геометрическую привязку:\n{error}")
