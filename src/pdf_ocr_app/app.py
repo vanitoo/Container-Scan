@@ -6,12 +6,13 @@ import os
 from dotenv import load_dotenv, set_key
 
 from pdf_ocr_app.config import DEFAULT_COORDINATES, ENV_FILE
-from pdf_ocr_app.gui.main_window_results import MainWindow
+from pdf_ocr_app.gui.main_window_alignment import MainWindow
 from pdf_ocr_app.models.state import AppState
+from pdf_ocr_app.services.aligned_pdf_service import AlignedPDFService
+from pdf_ocr_app.services.alignment_service import AlignmentService
 from pdf_ocr_app.services.excel_service import ExcelService
 from pdf_ocr_app.services.matching_service import MatchingService
 from pdf_ocr_app.services.ocr_service import OCRService
-from pdf_ocr_app.services.pdf_service import PDFService
 from pdf_ocr_app.utils.logger import logger
 from pdf_ocr_app.version import __version__
 
@@ -31,9 +32,14 @@ class PDFOCRApp:
         self.state = AppState()
         self._load_environment()
 
+        # Экспериментальное состояние Analysis2 держим отдельно от основного OCR.
+        self.state.aligned_page_images = {}
+        self.state.alignment_results = {}
+
         # Инициализация сервисов
-        self.pdf_service = PDFService(self.state)
+        self.pdf_service = AlignedPDFService(self.state)
         self.ocr_service = OCRService(self.state)
+        self.alignment_service = AlignmentService(self.state)
         self.excel_service = ExcelService(self.state)
         self.matching_service = MatchingService(self.state, self.ocr_service)
 
@@ -55,7 +61,6 @@ class PDFOCRApp:
             self.state.y_end = int(os.getenv("Y_END", DEFAULT_COORDINATES["Y_END"]))
             self.state.regex_pattern = os.getenv("REGEX_PATTERN", DEFAULT_COORDINATES["REGEX_PATTERN"])
 
-            # Инициализация selected_areas
             self.state.selected_areas = [
                 (None, self.state.x_start, self.state.y_start, self.state.x_end, self.state.y_end)]
 
@@ -79,15 +84,14 @@ class PDFOCRApp:
             set_key(ENV_FILE, "Y_END", str(self.state.y_end))
             set_key(ENV_FILE, "REGEX_PATTERN", str(self.state.regex_pattern))
         except Exception as e:
-            logger.error(f"Ошибка при сохранении в .env: {e}")
+            logger.error(f"Ошибка при сохранении в .env файл: {e}")
 
     def run(self):
         """Запуск приложения"""
         try:
-            # Настройка логирования
             logger.setup(
                 log_file="main_app.log",
-                gui_widget=None,  # Будет установлен в GUI
+                gui_widget=None,
                 max_log_size=10 * 1024 * 1024,
                 backup_count=5,
                 log_level="DEBUG" if self.state.debug_mode else "INFO"
@@ -100,14 +104,11 @@ class PDFOCRApp:
             logger.info(f"Версия приложения: {self.version}")
             self.ocr_service.check_tesseract()
 
-            # Проверка обновлений
             self._check_for_updates()
-
             self.gui.run()
 
         except Exception as e:
             logger.critical(f"Критическая ошибка при запуске: {e}")
-            # Показываем ошибку в messagebox если GUI не запустился
             try:
                 import tkinter.messagebox as messagebox
                 messagebox.showerror("Ошибка запуска", f"Не удалось запустить приложение:\n{e}")
@@ -116,12 +117,9 @@ class PDFOCRApp:
             raise
 
     def _check_for_updates(self):
-        """Проверка обновлений"""
-        # Можно добавить логику проверки обновлений
         pass
 
     def on_closing(self):
-        """Обработчик закрытия приложения"""
         self._save_environment()
         if self.root:
             self.root.destroy()
