@@ -30,6 +30,7 @@ class CanvasComponent:
         self.canvas = None
         self.canvas2 = None
         self.recognition_text = None
+        self.preview_filters_var = None
 
     def display_image(self):
         """Отображение текущего изображения на canvas"""
@@ -38,13 +39,11 @@ class CanvasComponent:
             self.canvas.create_image(0, 0, anchor=tk.NW, image=self.state.image_display)
             self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
 
-            # Перерисовываем выделение если есть
             if (self.state.x_start and self.state.y_start and
                     self.state.x_end and self.state.y_end):
                 self.draw_selection()
 
             self._update_zoom_status()
-
             logger.debug("Изображение отображено на canvas")
 
     def create_canvases(self):
@@ -74,6 +73,16 @@ class CanvasComponent:
         preview_frame = ttk.Frame(self.parent)
         preview_frame.pack(side=tk.LEFT, anchor=tk.N, padx=6, pady=10)
 
+        preview_toolbar = ttk.Frame(preview_frame)
+        preview_toolbar.pack(side=tk.TOP, fill=tk.X, pady=(0, 4))
+        self.preview_filters_var = tk.BooleanVar(value=self.state.preview_ocr_filters)
+        ttk.Checkbutton(
+            preview_toolbar,
+            text="Предпросмотр OCR-фильтров",
+            variable=self.preview_filters_var,
+            command=self._toggle_filter_preview,
+        ).pack(side=tk.LEFT)
+
         self.canvas2 = tk.Canvas(
             preview_frame,
             width=canvas_width,
@@ -98,7 +107,6 @@ class CanvasComponent:
         )
         self.recognition_text.pack(side=tk.TOP, fill=tk.X)
 
-        # Бинды событий
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
@@ -107,6 +115,17 @@ class CanvasComponent:
         self.canvas.bind("<B3-Motion>", self.on_canvas_pan_drag)
         self.canvas.bind("<ButtonRelease-3>", self.on_canvas_pan_end)
         self.canvas2.bind("<MouseWheel>", self.on_canvas2_zoom)
+
+    def _toggle_filter_preview(self):
+        self.state.preview_ocr_filters = bool(self.preview_filters_var.get())
+        mode = "включён" if self.state.preview_ocr_filters else "выключен"
+        logger.info(f"Предпросмотр OCR-фильтров: {mode}")
+        self.update_cropped_image()
+
+    def refresh_filter_preview(self):
+        """Перерисовать preview после изменения OCR-настроек."""
+        if self.state.preview_ocr_filters:
+            self.update_cropped_image()
 
     def on_canvas_pan_start(self, event):
         self.canvas.scan_mark(event.x, event.y)
@@ -192,17 +211,12 @@ class CanvasComponent:
         self.update_cropped_image()
 
     def on_canvas_release_new(self, event):
-        """Фиксируем финальные координаты выделения, нормализуем и сохраняем их в состоянии."""
-        # Конечные координаты курсора
         self.state.x_end, self.state.y_end = event.x, event.y
-
-        # Нормализация порядка координат (x1 <= x2, y1 <= y2)
         if self.state.x_end < self.state.x_start:
             self.state.x_start, self.state.x_end = self.state.x_end, self.state.x_start
         if self.state.y_end < self.state.y_start:
             self.state.y_start, self.state.y_end = self.state.y_end, self.state.y_start
 
-        # Обновляем прямоугольник на Canvas
         if self.state.rect_id is not None:
             self.canvas.coords(
                 self.state.rect_id,
@@ -216,7 +230,6 @@ class CanvasComponent:
                 outline="red", width=2
             )
 
-        # Обновляем список выделений (храним актуальное)
         self.state.selected_areas.clear()
         self.state.selected_areas.append((
             self.state.rect_id,
@@ -226,27 +239,19 @@ class CanvasComponent:
             self.state.y_end
         ))
 
-        # Сохраняем нормализованное выделение (в долях от размеров отображаемого изображения)
         try:
             page_img = getattr(self.state, "page_image", None)
             w = page_img.width if page_img is not None else None
             h = page_img.height if page_img is not None else None
             if w and h:
-                x1n = self.state.x_start / w
-                y1n = self.state.y_start / h
-                x2n = self.state.x_end / w
-                y2n = self.state.y_end / h
-                # Клип к [0..1]
-                x1n = max(0.0, min(1.0, x1n))
-                y1n = max(0.0, min(1.0, y1n))
-                x2n = max(0.0, min(1.0, x2n))
-                y2n = max(0.0, min(1.0, y2n))
+                x1n = max(0.0, min(1.0, self.state.x_start / w))
+                y1n = max(0.0, min(1.0, self.state.y_start / h))
+                x2n = max(0.0, min(1.0, self.state.x_end / w))
+                y2n = max(0.0, min(1.0, self.state.y_end / h))
                 self.state.selection_rect_norm = (x1n, y1n, x2n, y2n)
         except Exception:
-            # Не критично — просто не сохраняем нормализованную форму
             pass
 
-        # Обновляем подписи/второй холст
         self.update_coordinates_display()
         self.update_cropped_image()
 
@@ -308,43 +313,29 @@ class CanvasComponent:
         self._update_zoom_status()
 
     def on_canvas2_zoom(self, event):
-        """Масштабирование на втором холсте"""
         if not self.state.cropped_image:
             return
 
-        # Получаем координаты мыши относительно canvas2
         mouse_x = self.canvas2.canvasx(event.x)
         mouse_y = self.canvas2.canvasy(event.y)
-
-        # Устанавливаем коэффициент масштабирования
         zoom_factor = 1.1 if event.delta > 0 else 0.9
         new_scale = self.state.canvas2_scale * zoom_factor
-
-        # Ограничения масштаба
         new_scale = max(0.5, min(new_scale, 5.0))
         if new_scale == self.state.canvas2_scale:
             return
 
         self.state.canvas2_scale = new_scale
-
-        # Новые размеры изображения
         new_width = int(self.state.cropped_image.width * self.state.canvas2_scale)
         new_height = int(self.state.cropped_image.height * self.state.canvas2_scale)
-
-        # Масштабируем изображение
         scaled_img = self.state.cropped_image.resize((new_width, new_height), Image.LANCZOS)
 
-        # Обновляем canvas2
         self.canvas2.delete("all")
         self.canvas2.image = ImageTk.PhotoImage(scaled_img)
         self.canvas2.create_image(0, 0, anchor=tk.NW, image=self.canvas2.image)
         self.canvas2.config(scrollregion=(0, 0, new_width, new_height))
-
-        # Прокручиваем так, чтобы под курсором осталась та же точка
         self.canvas2.xview_moveto((mouse_x * zoom_factor - event.x) / new_width)
         self.canvas2.yview_moveto((mouse_y * zoom_factor - event.y) / new_height)
 
-        # Обновляем статус масштаба
         try:
             self._update_zoom_status()
         except Exception as e:
@@ -366,130 +357,85 @@ class CanvasComponent:
             self.app.gui.coordinates_entry.insert(0, coordinates_text)
 
     def update_cropped_image(self):
-        """Обновление увеличенной копии выделенной области на втором холсте"""
+        """Обновление выделенной области и, при необходимости, OCR-preview."""
         if not self.state.page_image:
             logger.warning("Нет page_image для обновления обрезанного изображения")
             return
 
         try:
-            logger.debug("=== НАЧАЛО update_cropped_image ===")
-
-            # Логируем исходные координаты и масштаб
-            logger.debug(
-                f"Исходные координаты: ({self.state.x_start}, {self.state.y_start}) - "
-                f"({self.state.x_end}, {self.state.y_end})"
-            )
-            logger.debug(f"Текущий scale_factor: {self.state.scale_factor}")
-
-            # Вырезаем область с оригинальными координатами (без учета текущего масштаба)
             inverse_scale = 1 / self.state.scale_factor
             x1 = int(self.state.x_start * inverse_scale)
             y1 = int(self.state.y_start * inverse_scale)
             x2 = int(self.state.x_end * inverse_scale)
             y2 = int(self.state.y_end * inverse_scale)
 
-            logger.debug(f"Координаты после пересчета: ({x1}, {y1}) - ({x2}, {y2})")
-            logger.debug(f"inverse_scale: {inverse_scale}")
-
-            # Проверяем валидность координат
-            if x2 <= x1:
-                logger.error(f"Некорректные X координаты: x1={x1}, x2={x2}")
-                return
-            if y2 <= y1:
-                logger.error(f"Некорректные Y координаты: y1={y1}, y2={y2}")
+            if x2 <= x1 or y2 <= y1:
+                logger.error("Некорректные координаты выделенной области")
                 return
 
-            # Вырезаем из оригинального изображения
             if self.state.original_page_image:
-                logger.debug("Используем original_page_image для вырезки")
                 original_width, original_height = self.state.original_page_image.size
-                logger.debug(f"Размер оригинального изображения: {original_width}x{original_height}")
-
-                # Проверяем границы
                 x1 = max(0, min(x1, original_width - 1))
                 y1 = max(0, min(y1, original_height - 1))
                 x2 = max(1, min(x2, original_width))
                 y2 = max(1, min(y2, original_height))
-
-                logger.debug(f"Координаты после проверки границ: ({x1}, {y1}) - ({x2}, {y2})")
-
                 if x2 <= x1 or y2 <= y1:
-                    logger.error("Координаты вышли за границы после нормализации")
                     return
-
-                self.state.cropped_image = self.state.original_page_image.crop((x1, y1, x2, y2))
-                logger.debug(f"Вырезано из оригинала: {self.state.cropped_image.size}")
+                raw_cropped = self.state.original_page_image.crop((x1, y1, x2, y2))
             else:
-                logger.debug("Используем page_image для вырезки (оригинала нет)")
                 page_width, page_height = self.state.page_image.size
-                logger.debug(f"Размер page_image: {page_width}x{page_height}")
-
-                # Проверяем границы для масштабированного изображения
                 x1_scaled = max(0, min(self.state.x_start, page_width - 1))
                 y1_scaled = max(0, min(self.state.y_start, page_height - 1))
                 x2_scaled = max(1, min(self.state.x_end, page_width))
                 y2_scaled = max(1, min(self.state.y_end, page_height))
+                raw_cropped = self.state.page_image.crop((x1_scaled, y1_scaled, x2_scaled, y2_scaled))
 
-                logger.debug(
-                    f"Координаты для масштабированного изображения: ({x1_scaled}, {y1_scaled}) - "
-                    f"({x2_scaled}, {y2_scaled})"
-                )
+            self.state.cropped_image = raw_cropped
+            display_cropped = raw_cropped
 
-                self.state.cropped_image = self.state.page_image.crop((
-                    x1_scaled, y1_scaled,
-                    x2_scaled, y2_scaled
-                ))
-                logger.debug(f"Вырезано из масштабированного: {self.state.cropped_image.size}")
+            if self.state.preview_ocr_filters:
+                try:
+                    coords = (
+                        self.state.x_start,
+                        self.state.y_start,
+                        self.state.x_end,
+                        self.state.y_end,
+                    )
+                    prepared = self.app.ocr_service.prepare_preview_image(
+                        self.state.current_page,
+                        coords,
+                    )
+                    if prepared is not None:
+                        display_cropped = prepared
+                        logger.debug(
+                            "Canvas2 показывает OCR-preview: режим=%s, размер=%s",
+                            "Advance" if self.state.recognition_mode == 1 else (
+                                "Legacy 2.0.3" if self.state.use_legacy_tesseract else "Текущий"
+                            ),
+                            prepared.size,
+                        )
+                except Exception as exc:
+                    logger.warning(f"Не удалось построить OCR-preview: {exc}")
 
-            # Проверяем результат вырезки
-            if not self.state.cropped_image:
-                logger.error("Не удалось создать cropped_image")
-                return
-
-            cropped_width, cropped_height = self.state.cropped_image.size
-            logger.debug(f"Размер cropped_image: {cropped_width}x{cropped_height}")
-
+            # Для zoom на canvas2 храним именно отображаемую картинку.
+            self.state.cropped_image = display_cropped
+            cropped_width, cropped_height = display_cropped.size
             if cropped_width == 0 or cropped_height == 0:
-                logger.error("Вырезанное изображение имеет нулевой размер")
                 return
 
-            # Подготавливаем изображение для отображения
-            canvas2_scale = 1.0
-            self.state.canvas2_scale = canvas2_scale
-            width = int(cropped_width * canvas2_scale)
-            height = int(cropped_height * canvas2_scale)
+            self.state.canvas2_scale = 1.0
+            scaled_img = display_cropped.resize((cropped_width, cropped_height), Image.LANCZOS)
 
-            logger.debug(f"Масштаб для canvas2: {canvas2_scale}")
-            logger.debug(f"Размер после масштабирования: {width}x{height}")
-
-            # Масштабируем изображение
-            scaled_img = self.state.cropped_image.resize((width, height), Image.LANCZOS)
-            logger.debug("Изображение масштабировано")
-
-            # Отображаем на canvas2
             self.canvas2.delete("all")
-            logger.debug("Canvas2 очищен")
-
             self.canvas2.image = ImageTk.PhotoImage(scaled_img)
-            logger.debug("Создан PhotoImage для canvas2")
-
             self.canvas2.create_image(0, 0, anchor=tk.NW, image=self.canvas2.image)
-            logger.debug("Изображение создано на canvas2")
-
             self.canvas2.config(scrollregion=self.canvas2.bbox(tk.ALL))
             self._update_zoom_status()
-            logger.debug("Область прокрутки установлена")
-
-            logger.debug(f"УСПЕШНО: Обновлено изображение на втором холсте: {width}x{height}")
-            logger.debug("=== КОНЕЦ update_cropped_image ===")
 
         except Exception as e:
             logger.error(f"ОШИБКА в update_cropped_image: {e}")
-            logger.debug("=== КОНЕЦ update_cropped_image С ОШИБКОЙ ===")
-
 
     def draw_selection(self):
-        """Рисование выделенной области и обновление второго холста"""
         if self.state.rect_id:
             self.canvas.delete(self.state.rect_id)
 
@@ -499,19 +445,16 @@ class CanvasComponent:
             outline="red", width=2
         )
         self.update_coordinates_display()
-        self.update_cropped_image()  # Обязательно обновляем второй холст
+        self.update_cropped_image()
 
 
 class TableComponent:
-    # Базовый цвет строки → цвет выделенной строки (светлее того же цвета).
-    # Строка должна быть видна и "в цвете", и "выделенной" одновременно.
     ROW_COLORS = {
         "exact_match": ("#a8e6a8", "#d3f5d3"),
         "partial_match": ("#fff8a8", "#fffcd9"),
         "no_match": ("#ffaaaa", "#ffd8d8"),
         "manual_edit": ("#ddaaff", "#efd9ff"),
     }
-    # Нейтральная подсветка для строк без цветового тега.
     SELECTED_NEUTRAL = "#DFECFF"
 
     def __init__(self, parent, app):
@@ -520,7 +463,7 @@ class TableComponent:
         self.state = app.state
         self.tree = None
         self.last_click_time = 0
-        self._prevent_selection_loop = False  # Добавляем флаг
+        self._prevent_selection_loop = False
         self._edit_tooltip = None
         self._edit_tooltip_after = None
         self._hovered_edit_cell = None
@@ -562,9 +505,6 @@ class TableComponent:
         self.tree.bind("<Leave>", self.hide_edit_tooltip)
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_selection_changed)
 
-        # Теги подсветки выделения: та же палитра, но светлее.
-        # Стандартное выделение ttk (синий фон + белый текст) перекрывает цвет
-        # строки, поэтому выделение рисуем тегом поверх цвета строки.
         for base, (_normal, selected_color) in self.ROW_COLORS.items():
             self.tree.tag_configure(
                 f"{base}_selected",
@@ -581,7 +521,6 @@ class TableComponent:
 
     @staticmethod
     def format_differences(recognized: str, matched: str) -> str:
-        """Show mismatched character positions for fixed-format container codes."""
         recognized = (recognized or "").strip().upper()
         matched = (matched or "").strip().upper()
         if not recognized or not matched:
@@ -597,7 +536,6 @@ class TableComponent:
         return "; ".join(differences) if differences else "Совпадает полностью"
 
     def update_match_summary(self):
-        """Count only exact and manually confirmed rows as fully matched."""
         if self.tree is None:
             return
 
@@ -618,31 +556,18 @@ class TableComponent:
             )
 
     def _on_tree_selection_changed(self, _event=None):
-        """Подсветить выбранную строку светлой версией её цвета.
-
-        Стандартное выделение ttk перекрывает цветовой фон строки, поэтому
-        снимаем его и применяем тег "<цвет>_selected" с осветлённым фоном того
-        же цвета — строка остаётся "в цвете", но визуально выделена.
-        """
         self.refresh_selection_highlight()
 
     def refresh_selection_highlight(self):
-        """Применить подсветку выделения к текущему состоянию таблицы.
-
-        Вызывается из <<TreeviewSelect>>, а также вручную после любой операции,
-        которая перезаписывает теги строк (apply_match_results, save_edit).
-        """
         if self.tree is None:
             return
 
-        # Снимаем подсветку со всех строк.
         for item in self.tree.get_children():
             tags = list(self.tree.item(item, "tags"))
             filtered = [t for t in tags if not t.endswith("_selected")]
             if len(filtered) != len(tags):
                 self.tree.item(item, tags=tuple(filtered))
 
-        # Подсвечиваем выбранную строку светлой версией её цвета.
         selection = self.tree.selection()
         if not selection:
             return
@@ -671,9 +596,9 @@ class TableComponent:
         self.goto_page(item)
 
         if is_double_click:
-            if column == "#5":  # Столбец "Совпадение"
+            if column == "#5":
                 self.edit_cell(item, column)
-            elif column == "#4":  # Столбец "Контейнер распознанный"
+            elif column == "#4":
                 self.copy_recognized_to_clipboard(item, event)
 
     def on_tree_motion(self, event):
@@ -730,7 +655,6 @@ class TableComponent:
         if self.tree is not None:
             self.tree.config(cursor="")
 
-
     def on_tree_enter(self, event):
         item = self.tree.focus() or (self.tree.selection()[0] if self.tree.selection() else None)
         if not item:
@@ -746,15 +670,8 @@ class TableComponent:
         self.edit_cell(item, "#5")
         return "break"
 
-
     def on_tree_selection_change(self, event):
         return
-
-        if getattr(self.app.gui, "_programmatic_selection", False):
-            return
-        current_selection = self.tree.selection()
-        if current_selection:
-            self.goto_page(current_selection[0])
 
     def goto_page(self, item):
         values = self.tree.item(item, "values")
@@ -764,7 +681,6 @@ class TableComponent:
                 self.app.gui.goto_page_from_table(page_num)
             except ValueError:
                 pass
-
 
     def copy_recognized_to_clipboard(self, item, event):
         values = self.tree.item(item, "values")
@@ -793,28 +709,22 @@ class TableComponent:
         label.pack()
         tooltip.after(1500, tooltip.destroy)
 
-
     def edit_cell(self, item, column):
-        """Редактирование ячейки таблицы"""
         expected_containers = []
         for _xls_id, container in self.state.all_excel_records:
             if container and container not in expected_containers:
                 expected_containers.append(container)
 
         expected_containers.sort()
-
-        # Получаем координаты и текущее значение
         x, y, width, height = self.tree.bbox(item, column)
-        current_value = self.tree.item(item, "values")[4]  # столбец "Совпадение"
+        current_value = self.tree.item(item, "values")[4]
 
-        # Создаем поле ввода
         first_input = {"done": False}
         entry_edit = tk.Entry(self.tree, borderwidth=0, font=("Arial", 10))
         entry_edit.place(x=x, y=y, width=width, height=height, anchor=tk.NW)
         entry_edit.insert(0, current_value)
         entry_edit.focus_set()
 
-        # Создаем Listbox для автоподсказок
         listbox = tk.Listbox(self.tree, height=min(15, len(expected_containers)))
         listbox.place(x=x, y=y + height, width=width)
 
@@ -848,7 +758,6 @@ class TableComponent:
             if event.keysym in ("Up", "Down", "Return"):
                 return
 
-            # Преобразуем в верхний регистр
             pos = entry_edit.index(tk.INSERT)
             text = entry_edit.get().upper()
             entry_edit.delete(0, tk.END)
@@ -938,7 +847,6 @@ class TableComponent:
                 values.append("")
             values[6] = self.format_differences(values[3], new_value)
 
-            # Обновляем цвет для ручного редактирования
             self.tree.tag_configure("manual_edit", background="#ddaaff")
             self.tree.item(item, tags=("manual_edit",))
             self.refresh_selection_highlight()
@@ -953,7 +861,6 @@ class TableComponent:
             if widget != listbox:
                 save_edit()
 
-        # Привязки событий
         entry_edit.bind("<KeyRelease>", on_key_release)
         entry_edit.bind("<FocusOut>", on_entry_focus_out)
         entry_edit.bind("<KeyPress>", on_entry_key)
@@ -965,26 +872,21 @@ class TableComponent:
         update_listbox()
 
     def bind_navigation_keys(self):
-        """Привязка клавиш навигации"""
         self.tree.bind("<Up>", self.on_arrow_key)
         self.tree.bind("<Down>", self.on_arrow_key)
         self.tree.bind("<Home>", self.on_arrow_key)
         self.tree.bind("<End>", self.on_arrow_key)
-        self.tree.bind("<Prior>", self.on_arrow_key)  # Page Up
-        self.tree.bind("<Next>", self.on_arrow_key)  # Page Down
+        self.tree.bind("<Prior>", self.on_arrow_key)
+        self.tree.bind("<Next>", self.on_arrow_key)
 
     def on_arrow_key(self, event):
-        """Обработчик клавиш навигации"""
-
-        # Позволяем стандартную обработку навигации по таблице
-        # После чего обновляем страницу PDF
         def update_after_navigation():
             current_selection = self.tree.selection()
             if current_selection:
                 self.goto_page(current_selection[0])
 
-        # Вызываем обновление после завершения стандартной обработки
         self.tree.after(10, update_after_navigation)
+
 
 class StatusBar:
     def __init__(self, parent, app):
@@ -1035,7 +937,6 @@ class StatusBar:
             self.status_msg_var.set(msg)
 
     def _current_page_size(self) -> str | None:
-        """Return native PDF dimensions and the current rendered-image size."""
         document = self.state.pdf_doc
         if document is None or document.page_count == 0:
             return None
