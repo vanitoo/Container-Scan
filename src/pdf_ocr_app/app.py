@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv, set_key
 
 from pdf_ocr_app.config import DEFAULT_COORDINATES, ENV_FILE
-from pdf_ocr_app.gui.main_window import MainWindow
+from pdf_ocr_app.gui.main_window_results import MainWindow
 from pdf_ocr_app.models.state import AppState
 from pdf_ocr_app.services.excel_service import ExcelService
 from pdf_ocr_app.services.matching_service import MatchingService
