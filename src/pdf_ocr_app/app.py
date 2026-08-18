@@ -16,6 +16,15 @@ from pdf_ocr_app.utils.logger import logger
 from pdf_ocr_app.version import __version__
 
 
+class ContainerScanMainWindow(MainWindow):
+    """Main window with ContainerScan-specific completion actions."""
+
+    def _recognition_completed(self, progress_window, total_pages):
+        """Automatically match recognized containers before showing completion."""
+        self.match_with_expected()
+        super()._recognition_completed(progress_window, total_pages)
+
+
 class PDFOCRApp:
     def __init__(self):
         self.version = __version__
@@ -33,7 +42,7 @@ class PDFOCRApp:
         self.state.ocr_service = self.ocr_service
 
         # GUI
-        self.gui = MainWindow(self)
+        self.gui = ContainerScanMainWindow(self)
         self.root = None
 
     def _load_environment(self):
