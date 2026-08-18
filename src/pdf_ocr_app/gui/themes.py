@@ -22,13 +22,13 @@ def apply_minimal_theme(root, theme="light"):
             FG = "#E5E7EB"
             ACCENT = "#3B82F6"
             MUTED = "#9CA3AF"
-            SEL_BG = "#374151"
+            SEL_BG = BG  # стандартное выделение прозрачно — подсветку дают теги
         else:
             BG = "#F7F7F9"
             FG = "#111827"
             ACCENT = "#2563EB"
             MUTED = "#6B7280"
-            SEL_BG = "#DBEAFE"
+            SEL_BG = BG  # стандартное выделение прозрачно — подсветку дают теги
 
         style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
         style.configure("TFrame", background=BG)
@@ -41,7 +41,7 @@ def apply_minimal_theme(root, theme="light"):
         style.configure("TCombobox", padding=6)
         style.configure("Treeview", borderwidth=0, rowheight=28, font=("Segoe UI", 10))
         style.configure("Treeview.Heading", font=("Segoe UI Semibold", 10), foreground=MUTED)
-        style.map("Treeview", background=[("selected", SEL_BG)], foreground=[("selected", FG)])
+        style.map("Treeview", foreground=[("selected", FG)])
 
     def style_treeview_stripes(tree):
         try:
@@ -85,7 +85,7 @@ def toggle_theme(root):
         BG = "#111827"
         FG = "#E5E7EB"
         MUTED = "#9CA3AF"
-        SEL_BG = "#374151"
+        SEL_BG = BG
         TB_BG = "#0F172A"
         SEP = "#1F2937"
         style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
@@ -96,14 +96,14 @@ def toggle_theme(root):
         style.configure("ToolSep.TFrame", background=SEP)
         style.configure("Treeview", background=BG, fieldbackground=BG, foreground=FG, rowheight=28)
         style.configure("Treeview.Heading", foreground=MUTED)
-        style.map("Treeview", background=[("selected", SEL_BG)], foreground=[("selected", FG)])
+        style.map("Treeview", foreground=[("selected", FG)])
         root._theme_mode = "dark"
     else:
         # Светлая тема
         BG = "#F7F7F9"
         FG = "#111827"
         MUTED = "#6B7280"
-        SEL_BG = "#DBEAFE"
+        SEL_BG = BG
         TB_BG = BG
         SEP = "#E5E7EB"
         style.configure(".", background=BG, foreground=FG, font=("Segoe UI", 10))
@@ -114,5 +114,5 @@ def toggle_theme(root):
         style.configure("ToolSep.TFrame", background=SEP)
         style.configure("Treeview", background=BG, fieldbackground=BG, foreground=FG, rowheight=28)
         style.configure("Treeview.Heading", foreground=MUTED)
-        style.map("Treeview", background=[("selected", SEL_BG)], foreground=[("selected", FG)])
+        style.map("Treeview", foreground=[("selected", FG)])
         root._theme_mode = "light"

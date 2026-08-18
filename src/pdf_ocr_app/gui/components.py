@@ -503,6 +503,17 @@ class CanvasComponent:
 
 
 class TableComponent:
+    # Базовый цвет строки → цвет выделенной строки (светлее того же цвета).
+    # Строка должна быть видна и "в цвете", и "выделенной" одновременно.
+    ROW_COLORS = {
+        "exact_match": ("#a8e6a8", "#d3f5d3"),
+        "partial_match": ("#fff8a8", "#fffcd9"),
+        "no_match": ("#ffaaaa", "#ffd8d8"),
+        "manual_edit": ("#ddaaff", "#efd9ff"),
+    }
+    # Нейтральная подсветка для строк без цветового тега.
+    SELECTED_NEUTRAL = "#DFECFF"
+
     def __init__(self, parent, app):
         self.parent = parent
         self.app = app
@@ -549,7 +560,22 @@ class TableComponent:
         self.tree.bind("<Return>", self.on_tree_enter)
         self.tree.bind("<Motion>", self.on_tree_motion)
         self.tree.bind("<Leave>", self.hide_edit_tooltip)
-        # self.tree.bind("<<TreeviewSelect>>", self.on_tree_selection_change)
+        self.tree.bind("<<TreeviewSelect>>", self._on_tree_selection_changed)
+
+        # Теги подсветки выделения: та же палитра, но светлее.
+        # Стандартное выделение ttk (синий фон + белый текст) перекрывает цвет
+        # строки, поэтому выделение рисуем тегом поверх цвета строки.
+        for base, (_normal, selected_color) in self.ROW_COLORS.items():
+            self.tree.tag_configure(
+                f"{base}_selected",
+                background=selected_color,
+                foreground="#111827",
+            )
+        self.tree.tag_configure(
+            "_neutral_selected",
+            background=self.SELECTED_NEUTRAL,
+            foreground="#111827",
+        )
 
         return self.tree
 
@@ -590,6 +616,44 @@ class TableComponent:
             status.update_status(
                 match_summary=f"Всего: {total} | Сопоставлено: {matched} | Осталось: {remaining}"
             )
+
+    def _on_tree_selection_changed(self, _event=None):
+        """Подсветить выбранную строку светлой версией её цвета.
+
+        Стандартное выделение ttk перекрывает цветовой фон строки, поэтому
+        снимаем его и применяем тег "<цвет>_selected" с осветлённым фоном того
+        же цвета — строка остаётся "в цвете", но визуально выделена.
+        """
+        self.refresh_selection_highlight()
+
+    def refresh_selection_highlight(self):
+        """Применить подсветку выделения к текущему состоянию таблицы.
+
+        Вызывается из <<TreeviewSelect>>, а также вручную после любой операции,
+        которая перезаписывает теги строк (apply_match_results, save_edit).
+        """
+        if self.tree is None:
+            return
+
+        # Снимаем подсветку со всех строк.
+        for item in self.tree.get_children():
+            tags = list(self.tree.item(item, "tags"))
+            filtered = [t for t in tags if not t.endswith("_selected")]
+            if len(filtered) != len(tags):
+                self.tree.item(item, tags=tuple(filtered))
+
+        # Подсвечиваем выбранную строку светлой версией её цвета.
+        selection = self.tree.selection()
+        if not selection:
+            return
+        item = selection[0]
+        tags = list(self.tree.item(item, "tags"))
+        selected_tag = next(
+            (f"{base}_selected" for base in self.ROW_COLORS if base in tags),
+            "_neutral_selected",
+        )
+        tags.append(selected_tag)
+        self.tree.item(item, tags=tuple(tags))
 
     def on_tree_click(self, event):
         self.hide_edit_tooltip()
@@ -877,6 +941,7 @@ class TableComponent:
             # Обновляем цвет для ручного редактирования
             self.tree.tag_configure("manual_edit", background="#ddaaff")
             self.tree.item(item, tags=("manual_edit",))
+            self.refresh_selection_highlight()
 
             self.tree.item(item, values=values)
             self.update_match_summary()

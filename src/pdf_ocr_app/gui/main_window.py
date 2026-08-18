@@ -572,6 +572,7 @@ class MainWindow:
 
         if not match_results:
             self.components["table"].update_match_summary()
+            self.components["table"].refresh_selection_highlight()
             return
 
         self.tree.tag_configure("exact_match", background="#a8e6a8")
@@ -597,6 +598,7 @@ class MainWindow:
             self.tree.item(item_id, values=tuple(values), tags=(result.get("tag", "no_match"),))
 
         self.components["table"].update_match_summary()
+        self.components["table"].refresh_selection_highlight()
 
     def save_results(self, btn):
         btn.config(state=tk.DISABLED)
