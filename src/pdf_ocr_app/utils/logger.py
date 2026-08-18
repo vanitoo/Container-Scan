@@ -1,13 +1,16 @@
 # utils/logger.py
 from __future__ import annotations
+
 import logging
 import tkinter as tk
 from logging import LogRecord
 from logging.handlers import RotatingFileHandler
+
 import colorama
 from colorama import Fore, Style
 
 colorama.init()
+
 
 class ColoredFormatter(logging.Formatter):
     COLORS = {
@@ -23,6 +26,7 @@ class ColoredFormatter(logging.Formatter):
         message = super().format(record)
         return f"{color}{message}{Style.RESET_ALL}"
 
+
 class GUILogHandler(logging.Handler):
     def __init__(self, widget: tk.Text):
         super().__init__()
@@ -35,7 +39,11 @@ class GUILogHandler(logging.Handler):
         self.widget.tag_config("INFO", foreground="black")
         self.widget.tag_config("WARNING", foreground="orange")
         self.widget.tag_config("ERROR", foreground="red")
-        self.widget.tag_config("CRITICAL", foreground="red", font=("TkDefaultFont", 12, "bold"))
+        self.widget.tag_config(
+            "CRITICAL",
+            foreground="red",
+            font=("TkDefaultFont", 12, "bold"),
+        )
 
     def emit(self, record: LogRecord):
         msg = self.format(record)
@@ -43,6 +51,7 @@ class GUILogHandler(logging.Handler):
         self.widget.insert(tk.END, msg + "\n", record.levelname)
         self.widget.see(tk.END)
         self.widget.configure(state="disabled")
+
 
 class UniversalLogger:
     _instance = None
@@ -77,7 +86,10 @@ class UniversalLogger:
 
         if log_file:
             file_handler = RotatingFileHandler(
-                log_file, maxBytes=max_log_size, backupCount=backup_count, encoding="utf-8"
+                log_file,
+                maxBytes=max_log_size,
+                backupCount=backup_count,
+                encoding="utf-8",
             )
             file_handler.setFormatter(formatter)
             self.logger.addHandler(file_handler)
@@ -102,19 +114,20 @@ class UniversalLogger:
             gui_handler.setLevel(self.logger.level)
             self.logger.addHandler(gui_handler)
 
-    def debug(self, message):
-        self.logger.debug(message)
+    def debug(self, message, *args, **kwargs):
+        self.logger.debug(message, *args, **kwargs)
 
-    def info(self, message):
-        self.logger.info(message)
+    def info(self, message, *args, **kwargs):
+        self.logger.info(message, *args, **kwargs)
 
-    def warning(self, message):
-        self.logger.warning(message)
+    def warning(self, message, *args, **kwargs):
+        self.logger.warning(message, *args, **kwargs)
 
-    def error(self, message, exc_info=False):
-        self.logger.error(message, exc_info=exc_info)
+    def error(self, message, *args, **kwargs):
+        self.logger.error(message, *args, **kwargs)
 
-    def critical(self, message):
-        self.logger.critical(message)
+    def critical(self, message, *args, **kwargs):
+        self.logger.critical(message, *args, **kwargs)
+
 
 logger = UniversalLogger()
