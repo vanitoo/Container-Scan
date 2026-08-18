@@ -9,7 +9,12 @@ from pdf_ocr_app.utils.logger import logger
 
 
 class MainWindow(ResultsMainWindow):
-    """Experimental UI for homography-based form alignment."""
+    """Experimental UI for selectable form-alignment algorithms."""
+
+    ANALYSIS_METHODS = {
+        "Анализ1 — перенос области": "analysis1",
+        "Анализ2 — выравнивание листа": "analysis2",
+    }
 
     def _create_main_toolbar(self):
         frame_main = ttk.Frame(self.root)
@@ -27,12 +32,22 @@ class MainWindow(ResultsMainWindow):
         btn_rotate_right = ttk.Button(
             frame_left, text="90° ↷", command=lambda: self.rotate_page(90), width=button_width
         )
+
+        self.analysis_method_var = tk.StringVar(value=next(iter(self.ANALYSIS_METHODS)))
+        self.analysis_method_combo = ttk.Combobox(
+            frame_left,
+            textvariable=self.analysis_method_var,
+            values=tuple(self.ANALYSIS_METHODS.keys()),
+            state="readonly",
+            width=29,
+        )
         self.btn_analyze_layout = ttk.Button(
-            frame_left, text="Анализ", command=self.analyze_layout, width=button_width
+            frame_left,
+            text="Анализ",
+            command=self._run_selected_analysis,
+            width=button_width,
         )
-        self.btn_analyze2 = ttk.Button(
-            frame_left, text="Анализ2", command=self.analyze_layout_v2, width=button_width
-        )
+
         btn_check = ttk.Button(frame_left, text="Проверить лист", command=self.check_image, width=button_width)
         btn_save_page = ttk.Button(
             frame_left,
@@ -45,8 +60,8 @@ class MainWindow(ResultsMainWindow):
         btn_next.pack(side=tk.LEFT, padx=4, pady=2)
         btn_rotate_left.pack(side=tk.LEFT, padx=4, pady=2)
         btn_rotate_right.pack(side=tk.LEFT, padx=4, pady=2)
-        self.btn_analyze_layout.pack(side=tk.LEFT, padx=4, pady=2)
-        self.btn_analyze2.pack(side=tk.LEFT, padx=4, pady=2)
+        self.analysis_method_combo.pack(side=tk.LEFT, padx=(8, 2), pady=2)
+        self.btn_analyze_layout.pack(side=tk.LEFT, padx=(2, 4), pady=2)
         btn_check.pack(side=tk.LEFT, padx=4, pady=2)
         btn_save_page.pack(side=tk.LEFT, padx=4, pady=2)
 
@@ -70,6 +85,26 @@ class MainWindow(ResultsMainWindow):
             command=lambda: self.updater.show_about(),
         ).pack(side=tk.LEFT, padx=(4, 0))
 
+    def _run_selected_analysis(self):
+        """Run the analysis implementation selected in the dropdown."""
+        selected_label = self.analysis_method_var.get()
+        method = self.ANALYSIS_METHODS.get(selected_label)
+
+        if method == "analysis1":
+            logger.info("Запуск Анализ1: перенос области по ORB/Homography")
+            self.analyze_layout()
+            return
+
+        if method == "analysis2":
+            logger.info("Запуск Анализ2: выравнивание всего листа по Homography")
+            self.analyze_layout_v2()
+            return
+
+        messagebox.showwarning(
+            "Анализ",
+            f"Неизвестный метод анализа: {selected_label}",
+        )
+
     def analyze_layout_v2(self):
         """Align current scan to the reference page and OCR the reference field."""
         if (
@@ -83,7 +118,7 @@ class MainWindow(ResultsMainWindow):
             )
             return
 
-        self.btn_analyze2.config(state=tk.DISABLED)
+        self.btn_analyze_layout.config(state=tk.DISABLED)
         self.components["status"].update_status(msg="Анализ2: геометрическая привязка...")
 
         page_index = self.state.current_page
@@ -117,7 +152,7 @@ class MainWindow(ResultsMainWindow):
             self.root.after(0, self._analyze2_failed, str(exc))
 
     def _apply_analyze2_result(self, page_index, reference_box, result):
-        self.btn_analyze2.config(state=tk.NORMAL)
+        self.btn_analyze_layout.config(state=tk.NORMAL)
         self.state.alignment_results[page_index] = result
 
         error_text = "n/a" if result.reprojection_error is None else f"{result.reprojection_error:.2f}px"
@@ -197,6 +232,6 @@ class MainWindow(ResultsMainWindow):
             messagebox.showerror("Анализ2", f"Выравнивание выполнено, но OCR завершился ошибкой:\n{exc}")
 
     def _analyze2_failed(self, error: str):
-        self.btn_analyze2.config(state=tk.NORMAL)
+        self.btn_analyze_layout.config(state=tk.NORMAL)
         self.components["status"].update_status(msg="Анализ2: ошибка")
         messagebox.showerror("Анализ2", f"Не удалось выполнить геометрическую привязку:\n{error}")
