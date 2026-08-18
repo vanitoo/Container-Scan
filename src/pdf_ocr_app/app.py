@@ -11,6 +11,7 @@ from pdf_ocr_app.models.state import AppState
 from pdf_ocr_app.services.aligned_pdf_service import AlignedPDFService
 from pdf_ocr_app.services.alignment_service import AlignmentService
 from pdf_ocr_app.services.excel_service import ExcelService
+from pdf_ocr_app.services.local_analysis_service import LocalAnalysisService
 from pdf_ocr_app.services.matching_service import MatchingService
 from pdf_ocr_app.services.ocr_service import OCRService
 from pdf_ocr_app.utils.logger import logger
@@ -40,6 +41,7 @@ class PDFOCRApp:
         self.pdf_service = AlignedPDFService(self.state)
         self.ocr_service = OCRService(self.state)
         self.alignment_service = AlignmentService(self.state)
+        self.local_analysis_service = LocalAnalysisService(self.state)
         self.excel_service = ExcelService(self.state)
         self.matching_service = MatchingService(self.state, self.ocr_service)
 
