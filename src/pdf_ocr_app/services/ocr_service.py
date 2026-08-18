@@ -6,11 +6,13 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 import cv2
+from PIL import Image
 
 from pdf_ocr_app.models.state import AppState
 from pdf_ocr_app.services.ocr import EngineInitResult, TesseractEngine
 from pdf_ocr_app.services.ocr.easyocr_engine import EasyOCREngine
 from pdf_ocr_app.services.ocr.paddleocr_engine import PaddleOCREngine
+from pdf_ocr_app.services.ocr.preprocessing import prepare_tesseract_image
 from pdf_ocr_app.utils.logger import logger
 
 
@@ -75,6 +77,33 @@ class OCRService:
     def enhanced_recognition(self, image, **kwargs):
         """Расширенное распознавание с обработкой изображения"""
         return self.tesseract_engine.recognize_advanced(image, **kwargs).upper()
+
+    def prepare_preview_image(self, page_index: int, coords: tuple) -> Image.Image | None:
+        """Вернуть изображение именно в том виде, в котором оно подаётся в OCR.
+
+        Для Advance применяется весь настраиваемый preprocessing pipeline.
+        Новый и legacy-режимы получают исходный crop; новый алгоритм может
+        дополнительно локально перерабатывать найденное слово внутри TesseractEngine.
+        """
+        cropped_image = self.state.pdf_service.extract_area_image(
+            page_index,
+            coords,
+            use_page_scale=False,
+        )
+        if cropped_image is None or cropped_image.size == 0:
+            return None
+
+        preview = cropped_image
+        if self.state.recognition_mode == 1:
+            preview = prepare_tesseract_image(
+                cropped_image,
+                options=self.state.advanced_options,
+                order=self.state.advanced_order,
+            )
+
+        if preview.ndim == 2:
+            return Image.fromarray(preview)
+        return Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB))
 
     def format_extracted_text(self, text: str, page_num: int) -> str:
         """Форматирование распознанного текста"""
