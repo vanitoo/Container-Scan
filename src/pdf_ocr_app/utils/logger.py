@@ -111,8 +111,8 @@ class UniversalLogger:
     def warning(self, message):
         self.logger.warning(message)
 
-    def error(self, message):
-        self.logger.error(message)
+    def error(self, message, exc_info=False):
+        self.logger.error(message, exc_info=exc_info)
 
     def critical(self, message):
         self.logger.critical(message)

@@ -63,7 +63,7 @@ jobs:
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
-          poetry run pyinstaller --onefile --noconsole --clean --name main --icon icon.ico --add-data "icon.ico;." --paths src --hidden-import=_ssl --collect-all=certifi run.py
+          poetry run pyinstaller --onefile --noconsole --clean --name ContainerScan --icon icon.ico --add-data "icon.ico;." --paths src --hidden-import=_ssl --collect-all=certifi run.py
 
         # Пояснение:
         # --hidden-import=_ssl   → страхуем явное включение SSL-модуля
@@ -74,7 +74,7 @@ jobs:
         with:
           name: build-artifacts
           path: |
-            dist/main.exe
+            dist/ContainerScan.exe
             pip-freeze.txt
 
       - name: Create GitHub Release
@@ -85,7 +85,7 @@ jobs:
         run: |
           $version = "${{ steps.get_version.outputs.version }}"
           $release_tag = "v$version"
-          gh release create $release_tag dist/main.exe --title "Release $release_tag" --notes "Release notes for $release_tag"
+          gh release create $release_tag dist/ContainerScan.exe --title "Release $release_tag" --notes "Release notes for $release_tag"
 
       - name: Create GitHub Release in another repository
         shell: pwsh
@@ -94,7 +94,7 @@ jobs:
         run: |
           $version = "${{ steps.get_version.outputs.version }}"
           $release_tag = "v$version"
-          gh release create $release_tag dist/main.exe `
+          gh release create $release_tag dist/ContainerScan.exe `
             --repo vanitoo/pythonProject-OpenCV-PDF-Build `
             --title "Release $release_tag" `
             --notes "Release notes for $release_tag" `

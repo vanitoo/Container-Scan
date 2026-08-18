@@ -38,11 +38,11 @@ class AutoUpdater:
             release = response.json()
             latest = release["tag_name"].lstrip("v")
             self.latest_asset = next(
-                (asset for asset in release.get("assets", []) if asset.get("name") == "main.exe"),
+                (asset for asset in release.get("assets", []) if asset.get("name") == "ContainerScan.exe"),
                 None,
             )
             if self.latest_asset is None:
-                raise ValueError("Релиз не содержит файл main.exe")
+                raise ValueError("Релиз не содержит файл ContainerScan.exe")
 
             digest = self.latest_asset.get("digest", "")
             digest_value = digest.removeprefix("sha256:")
@@ -51,10 +51,13 @@ class AutoUpdater:
                 or len(digest_value) != 64
                 or any(char not in "0123456789abcdefABCDEF" for char in digest_value)
             ):
-                raise ValueError("GitHub Release не содержит корректный SHA-256 для main.exe")
+                raise ValueError("GitHub Release не содержит корректный SHA-256 для ContainerScan.exe")
 
             download_url = self.latest_asset.get("browser_download_url", "")
-            if not download_url.startswith(self.DOWNLOAD_URL_PREFIX):
+            # GitHub отдаёт в browser_download_url канонический регистр имени
+            # репозитория (например, "Container-Scan"), а префикс записан строчными
+            # буквами, поэтому сравниваем без учёта регистра.
+            if not download_url.lower().startswith(self.DOWNLOAD_URL_PREFIX.lower()):
                 raise ValueError("GitHub Release содержит недоверенный адрес файла обновления")
             logger.info(f"Получена последняя версия: {latest}")
             return latest
@@ -155,7 +158,7 @@ class AutoUpdater:
         self, url: str, version: str, expected_digest: str, expected_size: int,
         progress_var, status_label, progress_window,
     ):
-        exe_path = Path(sys.executable).parent / f"main_{version}.exe"
+        exe_path = Path(sys.executable).parent / f"ContainerScan_{version}.exe"
         try:
             response = requests.get(url, stream=True, timeout=30)
             response.raise_for_status()
@@ -224,11 +227,11 @@ class AutoUpdater:
     def _restart_application(self, version: str):
         try:
             current_exe = Path(sys.executable).resolve()
-            update_exe = current_exe.parent / f"main_{version}.exe"
+            update_exe = current_exe.parent / f"ContainerScan_{version}.exe"
             if not update_exe.is_file():
                 raise FileNotFoundError(f"Файл обновления не найден: {update_exe}")
 
-            helper_script = current_exe.parent / ".main_update.ps1"
+            helper_script = current_exe.parent / ".container_scan_update.ps1"
             helper_log = current_exe.parent / "update_error.log"
             script = r'''param(
     [Parameter(Mandatory=$true)][int]$ParentProcessId,
