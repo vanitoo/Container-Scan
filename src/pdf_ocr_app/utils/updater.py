@@ -24,6 +24,9 @@ class AutoUpdater:
     DOWNLOAD_URL_PREFIX = "https://github.com/vanitoo/container-scan/releases/download/"
     REPOSITORY_URL = "https://github.com/vanitoo/Container-Scan"
     PENDING_MANIFEST = ".container_scan_pending_update.json"
+    UPDATE_SCRIPT = ".container_scan_update.ps1"
+    UPDATE_TRACE = "update_trace.log"
+    UPDATE_ERROR = "update_error.log"
 
     def __init__(self, root, add_about_button: bool = True):
         self.root = root
@@ -34,11 +37,8 @@ class AutoUpdater:
             self.add_about_button()
         self.show_version_in_title()
 
-        # Автообновление имеет смысл только для собранного PyInstaller EXE.
         if getattr(sys, "frozen", False):
-            # Сначала применяем ранее скачанное отложенное обновление.
             self.root.after(1_000, self._apply_pending_update_on_startup)
-            # Если отложенного обновления нет — обычная фоновая проверка GitHub.
             self.root.after(10_000, self.check_for_update_async)
 
     @property
@@ -78,19 +78,14 @@ class AutoUpdater:
             if (
                 not digest.startswith("sha256:")
                 or len(digest_value) != 64
-                or any(
-                    char not in "0123456789abcdefABCDEF"
-                    for char in digest_value
-                )
+                or any(char not in "0123456789abcdefABCDEF" for char in digest_value)
             ):
                 raise ValueError(
                     "GitHub Release не содержит корректный SHA-256 для ContainerScan.exe"
                 )
 
             download_url = self.latest_asset.get("browser_download_url", "")
-            if not download_url.lower().startswith(
-                self.DOWNLOAD_URL_PREFIX.lower()
-            ):
+            if not download_url.lower().startswith(self.DOWNLOAD_URL_PREFIX.lower()):
                 raise ValueError(
                     "GitHub Release содержит недоверенный адрес файла обновления"
                 )
@@ -118,10 +113,7 @@ class AutoUpdater:
     # ------------------------------------------------------------------
 
     def check_for_update_async(self):
-        threading.Thread(
-            target=self._check_for_update_worker,
-            daemon=True,
-        ).start()
+        threading.Thread(target=self._check_for_update_worker, daemon=True).start()
 
     def _check_for_update_worker(self):
         latest_version = self.get_latest_version()
@@ -133,12 +125,9 @@ class AutoUpdater:
             )
 
     def check_for_update_manual(self):
-        """Ручная проверка из окна «О программе»."""
+        """Ручная проверка обновления из окна «О программе»."""
         logger.info("Запущена ручная проверка обновлений")
-        threading.Thread(
-            target=self._manual_check_worker,
-            daemon=True,
-        ).start()
+        threading.Thread(target=self._manual_check_worker, daemon=True).start()
 
     def _manual_check_worker(self):
         latest_version = self.get_latest_version()
@@ -198,7 +187,6 @@ class AutoUpdater:
 
         btn_frame = tk.Frame(popup)
         btn_frame.pack(pady=(0, 10))
-
         ttk.Button(
             btn_frame,
             text="Обновить сейчас",
@@ -207,7 +195,6 @@ class AutoUpdater:
                 self.download_update(latest_version),
             ],
         ).pack(side="left", padx=5)
-
         ttk.Button(
             btn_frame,
             text="Напомнить позже",
@@ -215,12 +202,8 @@ class AutoUpdater:
         ).pack(side="left", padx=5)
 
         popup.update_idletasks()
-        screen_width = popup.winfo_screenwidth()
-        screen_height = popup.winfo_screenheight()
-        window_width = popup.winfo_width()
-        window_height = popup.winfo_height()
-        x = screen_width - window_width - 20
-        y = screen_height - window_height - 50
+        x = popup.winfo_screenwidth() - popup.winfo_width() - 20
+        y = popup.winfo_screenheight() - popup.winfo_height() - 50
         popup.geometry(f"+{x}+{y}")
 
     # ------------------------------------------------------------------
@@ -240,13 +223,12 @@ class AutoUpdater:
             messagebox.showerror(
                 "Ошибка обновления",
                 "Нет проверенных метаданных файла обновления.",
+                parent=self.root,
             )
             return
 
         url = self.latest_asset["browser_download_url"]
-        expected_digest = self.latest_asset["digest"].removeprefix(
-            "sha256:"
-        ).lower()
+        expected_digest = self.latest_asset["digest"].removeprefix("sha256:").lower()
         expected_size = int(self.latest_asset.get("size", 0))
 
         progress_window = tk.Toplevel(self.root)
@@ -255,16 +237,14 @@ class AutoUpdater:
         progress_window.resizable(False, False)
         progress_window.transient(self.root)
         progress_window.grab_set()
-
         progress_window.update_idletasks()
-        x = (
-            self.root.winfo_x()
-            + (self.root.winfo_width() - progress_window.winfo_width()) // 2
-        )
-        y = (
-            self.root.winfo_y()
-            + (self.root.winfo_height() - progress_window.winfo_height()) // 2
-        )
+
+        x = self.root.winfo_x() + (
+            self.root.winfo_width() - progress_window.winfo_width()
+        ) // 2
+        y = self.root.winfo_y() + (
+            self.root.winfo_height() - progress_window.winfo_height()
+        ) // 2
         progress_window.geometry(f"+{x}+{y}")
 
         tk.Label(
@@ -350,16 +330,13 @@ class AutoUpdater:
                         )
                         self.root.after(
                             0,
-                            lambda text=status_text: status_label.config(
-                                text=text
-                            ),
+                            lambda text=status_text: status_label.config(text=text),
                         )
 
             if expected_size > 0 and downloaded_size != expected_size:
                 raise ValueError(
                     "Размер обновления не совпадает: "
-                    f"ожидалось {expected_size}, получено "
-                    f"{downloaded_size} байт"
+                    f"ожидалось {expected_size}, получено {downloaded_size} байт"
                 )
 
             actual_digest = hasher.hexdigest()
@@ -368,15 +345,9 @@ class AutoUpdater:
                     "SHA-256 обновления не совпадает с хешем GitHub Release"
                 )
 
-            self._write_pending_manifest(
-                version,
-                exe_path,
-                actual_digest,
-            )
+            self._write_pending_manifest(version, exe_path, actual_digest)
             logger.info(f"SHA-256 обновления проверен: {actual_digest}")
-            logger.info(
-                f"Обновление подготовлено к установке: {exe_path.name}"
-            )
+            logger.info(f"Обновление подготовлено к установке: {exe_path.name}")
             self.root.after(
                 0,
                 lambda: self._download_completed(version, progress_window),
@@ -386,10 +357,7 @@ class AutoUpdater:
             self._clear_pending_manifest()
             self.root.after(
                 0,
-                lambda error=exc: self._download_failed(
-                    error,
-                    progress_window,
-                ),
+                lambda error=exc: self._download_failed(error, progress_window),
             )
 
     def _download_completed(self, version: str, progress_window):
@@ -401,6 +369,7 @@ class AutoUpdater:
             "Хотите перезапустить приложение для применения обновления?\n\n"
             "Если выберете «Нет», обновление будет автоматически применено "
             "при следующем запуске ContainerScan.",
+            parent=self.root,
         )
         if result:
             self._restart_application(version)
@@ -408,6 +377,7 @@ class AutoUpdater:
             messagebox.showinfo(
                 "Обновление",
                 "Обновление сохранено и будет применено при следующем запуске приложения.",
+                parent=self.root,
             )
 
     def _download_failed(self, error: Exception, progress_window):
@@ -415,13 +385,13 @@ class AutoUpdater:
             progress_window.destroy()
         error_msg = f"Ошибка при загрузке обновления: {error}"
         logger.error(error_msg)
-        messagebox.showerror("Ошибка обновления", error_msg)
+        messagebox.showerror("Ошибка обновления", error_msg, parent=self.root)
 
     def _cancel_download(self, progress_window):
         self.download_cancelled = True
         if progress_window.winfo_exists():
             progress_window.destroy()
-        messagebox.showinfo("Отменено", "Загрузка обновления отменена.")
+        messagebox.showinfo("Отменено", "Загрузка обновления отменена.", parent=self.root)
 
     # ------------------------------------------------------------------
     # Отложенное обновление
@@ -467,7 +437,6 @@ class AutoUpdater:
             filename = str(data["file"])
             expected_digest = str(data["sha256"]).lower()
 
-            # Не позволяем manifest указывать файл вне каталога приложения.
             update_path = (self.application_dir / filename).resolve()
             if update_path.parent != self.application_dir.resolve():
                 raise ValueError("Некорректный путь файла отложенного обновления")
@@ -475,12 +444,24 @@ class AutoUpdater:
                 raise FileNotFoundError(
                     f"Файл отложенного обновления не найден: {update_path}"
                 )
+
             if not self.is_newer_version(version):
-                logger.info(
-                    f"Отложенное обновление {version} больше не требуется"
-                )
-                update_path.unlink(missing_ok=True)
+                logger.info(f"Отложенное обновление {version} больше не требуется")
+
+                # Manifest мог остаться после ручного запуска уже скачанной версии.
+                # Сначала удаляем manifest. Сам EXE удаляем только если это НЕ
+                # текущий запущенный процесс. Иначе Windows вернёт WinError 5.
                 self._clear_pending_manifest()
+                if getattr(sys, "frozen", False):
+                    current_exe = Path(sys.executable).resolve()
+                    if update_path != current_exe:
+                        try:
+                            update_path.unlink(missing_ok=True)
+                        except OSError as exc:
+                            logger.warning(
+                                f"Не удалось удалить старый файл обновления "
+                                f"{update_path.name}: {exc}"
+                            )
                 return None
 
             actual_digest = self._file_sha256(update_path)
@@ -532,39 +513,110 @@ class AutoUpdater:
                 )
 
             current_exe = Path(sys.executable).resolve()
-            helper_script = current_exe.parent / ".container_scan_update.ps1"
-            helper_log = current_exe.parent / "update_error.log"
+            helper_script = current_exe.parent / self.UPDATE_SCRIPT
+            trace_log = current_exe.parent / self.UPDATE_TRACE
+            error_log = current_exe.parent / self.UPDATE_ERROR
+            backup_exe = current_exe.with_name(f"{current_exe.name}.bak")
 
             script = r'''param(
     [Parameter(Mandatory=$true)][int]$ParentProcessId,
     [Parameter(Mandatory=$true)][string]$Source,
     [Parameter(Mandatory=$true)][string]$Target,
+    [Parameter(Mandatory=$true)][string]$Backup,
     [Parameter(Mandatory=$true)][string]$WorkingDirectory,
     [Parameter(Mandatory=$true)][string]$ManifestPath,
-    [Parameter(Mandatory=$true)][string]$LogPath
+    [Parameter(Mandatory=$true)][string]$TracePath,
+    [Parameter(Mandatory=$true)][string]$ErrorPath
 )
 $ErrorActionPreference = "Stop"
+
+function Write-Trace([string]$Message) {
+    $line = "$(Get-Date -Format o) $Message"
+    Add-Content -LiteralPath $TracePath -Value $line -Encoding UTF8
+}
+
 try {
-    Wait-Process -Id $ParentProcessId -Timeout 60 -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $ErrorPath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
+    "" | Set-Content -LiteralPath $TracePath -Encoding UTF8
+
+    Write-Trace "Updater helper started. PID=$PID ParentPID=$ParentProcessId"
+    Write-Trace "Source: $Source"
+    Write-Trace "Target: $Target"
+
+    # Не полагаемся на Wait-Process -Timeout: на разных версиях Windows
+    # PowerShell его поведение отличается. Ждём PID обычным циклом.
+    for ($wait = 1; $wait -le 400; $wait++) {
+        $parent = Get-Process -Id $ParentProcessId -ErrorAction SilentlyContinue
+        if (-not $parent) {
+            Write-Trace "Application process exited after $wait checks."
+            break
+        }
+        if ($wait -eq 400) {
+            Write-Trace "Parent PID is still visible; continuing with file-lock retries."
+        }
+        Start-Sleep -Milliseconds 250
+    }
+
+    if (-not (Test-Path -LiteralPath $Source -PathType Leaf)) {
+        throw "Update source does not exist: $Source"
+    }
+
+    # PyInstaller one-file может ещё короткое время держать Target после
+    # завершения Python PID. Поэтому главным критерием служит возможность
+    # реально скопировать файл, а не только исчезновение процесса.
     $replaced = $false
-    for ($attempt = 1; $attempt -le 30; $attempt++) {
+    $lastReplaceError = ""
+    for ($attempt = 1; $attempt -le 120; $attempt++) {
         try {
-            Move-Item -LiteralPath $Source -Destination $Target -Force
+            if ((Test-Path -LiteralPath $Target -PathType Leaf) -and
+                -not (Test-Path -LiteralPath $Backup -PathType Leaf)) {
+                Copy-Item -LiteralPath $Target -Destination $Backup -Force
+                Write-Trace "Backup created: $Backup"
+            }
+
+            Copy-Item -LiteralPath $Source -Destination $Target -Force
             $replaced = $true
+            Write-Trace "Executable replaced successfully on attempt $attempt."
             break
         } catch {
+            $lastReplaceError = $_.Exception.Message
+            Write-Trace "Replace attempt $attempt failed: $lastReplaceError"
             Start-Sleep -Milliseconds 500
         }
     }
+
     if (-not $replaced) {
-        throw "Could not replace the running executable after 30 attempts."
+        throw "Could not replace executable. Last error: $lastReplaceError"
     }
+
+    Write-Trace "Starting updated application..."
+    $newProcess = Start-Process \
+        -FilePath $Target \
+        -WorkingDirectory $WorkingDirectory \
+        -PassThru
+
+    Start-Sleep -Seconds 3
+    $newProcess.Refresh()
+    if ($newProcess.HasExited) {
+        Write-Trace "Updated process exited immediately with code $($newProcess.ExitCode)."
+        if (Test-Path -LiteralPath $Backup -PathType Leaf) {
+            Copy-Item -LiteralPath $Backup -Destination $Target -Force
+            Write-Trace "Rollback completed from backup."
+        }
+        throw "Updated application exited immediately. Rollback was attempted."
+    }
+
+    Write-Trace "Updated process started successfully. PID=$($newProcess.Id)"
     Remove-Item -LiteralPath $ManifestPath -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
-    Start-Process -FilePath $Target -WorkingDirectory $WorkingDirectory
+    Remove-Item -LiteralPath $Source -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
+    Write-Trace "Update completed successfully."
 } catch {
-    "$(Get-Date -Format o) $($_.Exception.Message)" |
-        Set-Content -LiteralPath $LogPath -Encoding UTF8
+    $message = $_.Exception.Message
+    Write-Trace "ERROR: $message"
+    "$(Get-Date -Format o) $message" |
+        Set-Content -LiteralPath $ErrorPath -Encoding UTF8
     exit 1
 } finally {
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
@@ -577,8 +629,9 @@ try {
                 | getattr(subprocess, "DETACHED_PROCESS", 0)
             )
 
-            # Важно для PyInstaller one-file: дочерний процесс не должен
-            # наследовать runtime-окружение текущего распакованного EXE.
+            # Для нового экземпляра PyInstaller требуется независимое runtime-
+            # окружение, иначе он может принять новый EXE за дочерний процесс
+            # текущего one-file приложения.
             env = os.environ.copy()
             env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
 
@@ -599,12 +652,16 @@ try {
                     str(update_exe),
                     "-Target",
                     str(current_exe),
+                    "-Backup",
+                    str(backup_exe),
                     "-WorkingDirectory",
                     str(current_exe.parent),
                     "-ManifestPath",
                     str(self.pending_manifest_path),
-                    "-LogPath",
-                    str(helper_log),
+                    "-TracePath",
+                    str(trace_log),
+                    "-ErrorPath",
+                    str(error_log),
                 ],
                 cwd=str(current_exe.parent),
                 creationflags=creation_flags,
@@ -613,7 +670,8 @@ try {
             )
             logger.info(
                 f"Запущена установка обновления {version}: "
-                f"{update_exe.name} -> {current_exe.name}"
+                f"{update_exe.name} -> {current_exe.name}; "
+                f"трассировка: {trace_log.name}"
             )
             self.root.destroy()
         except Exception as exc:
@@ -624,6 +682,7 @@ try {
             messagebox.showerror(
                 "Ошибка",
                 f"Не удалось перезапустить приложение: {exc}",
+                parent=self.root,
             )
 
     # ------------------------------------------------------------------
