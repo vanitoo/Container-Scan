@@ -15,6 +15,35 @@ class ExcelService:
     def __init__(self, state: AppState):
         self.state = state
 
+    @staticmethod
+    def _cell_is_start_marker(value) -> bool:
+        """Проверка, что значение ячейки — маркер старта (цифра 1).
+
+        В столбце A ищем ячейку со значением 1 — это номер первой строки данных.
+        """
+        if value is None or isinstance(value, bool):
+            return False
+        try:
+            return float(str(value).strip()) == 1.0
+        except ValueError:
+            return False
+
+    def _find_start_row(self, sheet) -> int:
+        """Поиск стартовой строки в Excel: первая строка, где в столбце A стоит 1."""
+        for row in sheet.iter_rows(min_row=1, min_col=1, max_col=1):
+            if self._cell_is_start_marker(row[0].value):
+                return row[0].row
+        # Если маркер не найден — используем прежнее значение (5-я строка).
+        return 5
+
+    def _find_start_index(self, rows: list) -> int:
+        """Поиск стартовой строки в CSV: первая строка, где в первом столбце стоит 1."""
+        for idx, row in enumerate(rows):
+            if row and self._cell_is_start_marker(row[0]):
+                return idx
+        # Если маркер не найден — 5-я строка (индекс 4), как в Excel.
+        return 4
+
     def read_registry(self, file_path: str) -> list[tuple[str, str]]:
         """Чтение данных из Excel или CSV файла без обновления GUI."""
         suffix = Path(file_path).suffix.lower()
@@ -52,10 +81,15 @@ class ExcelService:
         records = []
         wb = openpyxl.load_workbook(file_path, data_only=True)
         sheet = wb.active
+        if sheet is None:
+            raise ValueError(f"Файл {file_path} не содержит активного листа")
 
         logger.info(f"Чтение данных из Excel файла: {file_path}")
 
-        for row in sheet.iter_rows(min_row=5):
+        start_row = self._find_start_row(sheet)
+        logger.info(f"Стартовая строка Excel: {start_row}")
+
+        for row in sheet.iter_rows(min_row=start_row):
             xls_id = ""
             container = ""
 
@@ -70,7 +104,11 @@ class ExcelService:
                     s = str(cell)
                     container = s.split("/")[-1].strip() if "/" in s else s.strip()
 
-            records.append((xls_id, container))
+            # Пропускаем пустые строки: после данных в файле часто есть
+            # хвостовые строки (итоги, оформление), в которых нет ни накладной,
+            # ни контейнера — в результат они попадать не должны.
+            if xls_id or container:
+                records.append((xls_id, container))
 
         return records
 
@@ -81,20 +119,23 @@ class ExcelService:
         logger.info(f"Чтение данных из CSV файла: {file_path}")
 
         with Path(file_path).open(encoding="utf-8") as f:
-            reader = csv.reader(f)
-            for idx, row in enumerate(reader):
-                if idx < 3:
-                    continue
+            rows = list(csv.reader(f))
 
-                xls_id = row[2].strip() if len(row) > 2 and row[2] is not None else ""
-                cell = row[3] if len(row) > 3 else ""
+        start_index = self._find_start_index(rows)
+        logger.info(f"Стартовая строка CSV: {start_index + 1}")
 
-                if cell:
-                    cell = str(cell)
-                    container = cell.split("/")[-1].strip() if "/" in cell else cell.strip()
-                else:
-                    container = ""
+        for row in rows[start_index:]:
+            xls_id = row[2].strip() if len(row) > 2 and row[2] is not None else ""
+            cell = row[3] if len(row) > 3 else ""
 
+            if cell:
+                cell = str(cell)
+                container = cell.split("/")[-1].strip() if "/" in cell else cell.strip()
+            else:
+                container = ""
+
+            # Пропускаем пустые строки — как при чтении Excel.
+            if xls_id or container:
                 records.append((xls_id, container))
 
         return records
