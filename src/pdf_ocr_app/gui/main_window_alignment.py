@@ -14,6 +14,7 @@ class MainWindow(ResultsMainWindow):
     ANALYSIS_METHODS = {
         "Анализ1 — перенос области": "analysis1",
         "Анализ2 — выравнивание листа": "analysis2",
+        "Local — уточнить область": "local",
     }
 
     def _create_main_toolbar(self):
@@ -100,10 +101,144 @@ class MainWindow(ResultsMainWindow):
             self.analyze_layout_v2()
             return
 
+        if method == "local":
+            logger.info("Запуск Local: поиск ячейки рядом с известной областью")
+            self.analyze_layout_local()
+            return
+
         messagebox.showwarning(
             "Анализ",
             f"Неизвестный метод анализа: {selected_label}",
         )
+
+    def analyze_layout_local(self):
+        """Уточнить область контейнера локально и распознать найденную область."""
+        if (
+            not self.state.pdf_doc
+            or self.state.layout_reference_image is None
+            or self.state.layout_reference_box is None
+        ):
+            messagebox.showwarning(
+                "Local",
+                "Нет эталона разметки. Загрузите PDF и задайте область на первой странице.",
+            )
+            return
+
+        self.btn_analyze_layout.config(state=tk.DISABLED)
+        self.components["status"].update_status(msg="Local: поиск рамки рядом с областью...")
+
+        page_index = self.state.current_page
+        reference_image = self.state.layout_reference_image.copy()
+        reference_box = tuple(self.state.layout_reference_box)
+        threading.Thread(
+            target=self._local_worker,
+            args=(page_index, reference_image, reference_box),
+            daemon=True,
+        ).start()
+
+    def _local_worker(self, page_index, reference_image, reference_box):
+        try:
+            current_image = self.app.pdf_service.render_page_image(page_index)
+            result = self.app.local_analysis_service.analyze(
+                reference_image=reference_image,
+                current_image=current_image,
+                reference_box=reference_box,
+            )
+            self.root.after(
+                0,
+                self._apply_local_result,
+                page_index,
+                current_image,
+                result,
+            )
+        except Exception as exc:
+            logger.error(f"Local завершился ошибкой: {exc}", exc_info=True)
+            self.root.after(0, self._local_failed, str(exc))
+
+    def _apply_local_result(self, page_index, current_image, result):
+        self.btn_analyze_layout.config(state=tk.NORMAL)
+
+        if result.box is None or result.status == "FAILED":
+            self.components["status"].update_status(msg="Local FAILED")
+            messagebox.showwarning(
+                "Local — требуется ручная проверка",
+                f"Не удалось уточнить область.\n\n{result.message}",
+            )
+            return
+
+        # Local всегда работает с исходным листом, даже если до него запускали Анализ2.
+        self.state.aligned_page_images.pop(page_index, None)
+        self.state.original_page_image = current_image.copy()
+        if not self.app.pdf_service.create_display_image():
+            self._local_failed("Не удалось отобразить исходное изображение")
+            return
+
+        x1, y1, x2, y2 = result.box
+        scale = self.state.scale_factor
+        self.state.x_start = round(x1 * scale)
+        self.state.y_start = round(y1 * scale)
+        self.state.x_end = round(x2 * scale)
+        self.state.y_end = round(y2 * scale)
+        self.state.selected_areas = [
+            (
+                self.state.rect_id,
+                self.state.x_start,
+                self.state.y_start,
+                self.state.x_end,
+                self.state.y_end,
+            )
+        ]
+        self.components["canvas"].display_image()
+
+        confidence_text = f"{result.confidence:.0%}"
+        logger.info(
+            f"Local: status={result.status}, method={result.method}, "
+            f"confidence={confidence_text}, box={result.box}"
+        )
+        self.components["status"].update_status(
+            msg=f"Local {result.status}: {result.method}, confidence={confidence_text}"
+        )
+
+        # Даже fallback-область полезна: она специально расширена, чтобы поймать
+        # небольшой X/Y сдвиг. OCR запускаем и явно сообщаем качество локализации.
+        self._run_ocr_after_local(page_index, result)
+
+    def _run_ocr_after_local(self, page_index, result):
+        try:
+            coords = (
+                self.state.x_start,
+                self.state.y_start,
+                self.state.x_end,
+                self.state.y_end,
+            )
+            recognized_text = self.app.ocr_service.recognize_area(page_index, coords)
+
+            if page_index < len(self.state.table_entries):
+                self.state.table_entries[page_index]["recognized"] = recognized_text
+                item_id = self.state.table_entries[page_index]["item_id"]
+                values = list(self.tree.item(item_id, "values"))
+                while len(values) < 4:
+                    values.append("")
+                values[3] = recognized_text
+                self.tree.item(item_id, values=values)
+
+            self._show_recognition_result_for_page(page_index)
+            confidence_text = f"{result.confidence:.0%}"
+            logger.info(
+                f"Local: OCR страницы {page_index + 1}: {recognized_text}; "
+                f"локализация={result.method}, confidence={confidence_text}"
+            )
+            self.components["status"].update_status(
+                msg=f"Local: OCR={recognized_text}, confidence={confidence_text}"
+            )
+        except Exception as exc:
+            logger.error(f"Local: ошибка OCR: {exc}", exc_info=True)
+            messagebox.showerror("Local", f"Область найдена, но OCR завершился ошибкой:\n{exc}")
+
+    def _local_failed(self, error: str):
+        self.btn_analyze_layout.config(state=tk.NORMAL)
+        self.components["status"].update_status(msg="Local: ошибка")
+        messagebox.showerror("Local", f"Не удалось выполнить локальный анализ:\n{error}")
 
     def analyze_layout_v2(self):
         """Align current scan to the reference page and OCR the reference field."""
