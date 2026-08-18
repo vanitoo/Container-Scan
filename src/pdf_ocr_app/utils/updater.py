@@ -9,6 +9,7 @@ import sys
 import threading
 import tkinter as tk
 import tkinter.messagebox as messagebox
+import webbrowser
 from pathlib import Path
 from tkinter import ttk
 
@@ -21,6 +22,7 @@ from pdf_ocr_app.version import __version__ as CURRENT_VERSION
 class AutoUpdater:
     UPDATE_URL = "https://api.github.com/repos/vanitoo/container-scan/releases/latest"
     DOWNLOAD_URL_PREFIX = "https://github.com/vanitoo/container-scan/releases/download/"
+    REPOSITORY_URL = "https://github.com/vanitoo/Container-Scan"
     PENDING_MANIFEST = ".container_scan_pending_update.json"
 
     def __init__(self, root, add_about_button: bool = True):
@@ -656,11 +658,23 @@ try {
             dialog,
             text=(
                 f"Текущая версия: {CURRENT_VERSION}\n"
-                "Проект с открытым исходным кодом.\n"
-                "GitHub: vanitoo/Container-Scan"
+                "Проект с открытым исходным кодом."
             ),
             justify=tk.CENTER,
-        ).pack(padx=20, pady=(0, 14))
+        ).pack(padx=20, pady=(0, 2))
+
+        repository_link = tk.Label(
+            dialog,
+            text="GitHub: vanitoo/Container-Scan",
+            fg="#0969da",
+            cursor="hand2",
+            font=("Segoe UI", 9, "underline"),
+        )
+        repository_link.pack(padx=20, pady=(0, 14))
+        repository_link.bind(
+            "<Button-1>",
+            lambda _event: webbrowser.open_new_tab(self.REPOSITORY_URL),
+        )
 
         buttons = ttk.Frame(dialog)
         buttons.pack(padx=14, pady=(0, 14), fill=tk.X)
