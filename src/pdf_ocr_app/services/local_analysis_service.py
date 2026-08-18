@@ -22,14 +22,34 @@ class LocalAnalysisResult:
 class LocalAnalysisService:
     """Уточняет известную область поля без выравнивания всего документа.
 
-    Алгоритм расширяет эталонный прямоугольник, ищет внутри него рамку ячейки
-    по контурам/линиям и возвращает уточнённые координаты в пикселях исходного
-    отрендеренного листа. Если рамка не найдена достаточно уверенно, используется
-    расширенная зона поиска как безопасный fallback для OCR.
+    Алгоритм масштабирует эталонный прямоугольник к размеру текущего листа,
+    расширяет его, ищет внутри рамку ячейки по контурам и возвращает уточнённые
+    координаты в пикселях текущего отрендеренного листа. Если рамка не найдена
+    достаточно уверенно, используется расширенная зона поиска как fallback.
     """
 
     def __init__(self, state: AppState):
         self.state = state
+
+    @staticmethod
+    def _scale_reference_box(
+        reference_box: tuple[int, int, int, int],
+        reference_size: tuple[int, int],
+        current_size: tuple[int, int],
+    ) -> tuple[int, int, int, int]:
+        ref_w, ref_h = reference_size
+        cur_w, cur_h = current_size
+        if ref_w <= 0 or ref_h <= 0:
+            return reference_box
+        scale_x = cur_w / ref_w
+        scale_y = cur_h / ref_h
+        x1, y1, x2, y2 = reference_box
+        return (
+            round(x1 * scale_x),
+            round(y1 * scale_y),
+            round(x2 * scale_x),
+            round(y2 * scale_y),
+        )
 
     @staticmethod
     def _expand_box(
@@ -42,14 +62,12 @@ class LocalAnalysisService:
         width = max(1, x2 - x1)
         height = max(1, y2 - y1)
         image_width, image_height = image_size
-
-        expanded = (
+        return (
             max(0, round(x1 - width * x_margin)),
             max(0, round(y1 - height * y_margin)),
             min(image_width, round(x2 + width * x_margin)),
             min(image_height, round(y2 + height * y_margin)),
         )
-        return expanded
 
     @staticmethod
     def _score_candidate(
@@ -83,25 +101,30 @@ class LocalAnalysisService:
 
     def analyze(
         self,
-        image: Image.Image,
+        reference_image: Image.Image,
+        current_image: Image.Image,
         reference_box: tuple[int, int, int, int],
     ) -> LocalAnalysisResult:
-        if image is None:
-            return LocalAnalysisResult("FAILED", None, 0.0, "none", "Нет изображения страницы")
+        if reference_image is None or current_image is None:
+            return LocalAnalysisResult("FAILED", None, 0.0, "none", "Нет изображения страницы или эталона")
 
-        image_width, image_height = image.size
-        search_box = self._expand_box(reference_box, (image_width, image_height))
+        image_width, image_height = current_image.size
+        expected_box = self._scale_reference_box(
+            reference_box,
+            reference_image.size,
+            current_image.size,
+        )
+        search_box = self._expand_box(expected_box, (image_width, image_height))
         sx1, sy1, sx2, sy2 = search_box
         if sx2 <= sx1 or sy2 <= sy1:
             return LocalAnalysisResult("FAILED", None, 0.0, "none", "Некорректная зона поиска")
 
-        source = np.asarray(image)
+        source = np.asarray(current_image)
         gray = cv2.cvtColor(source, cv2.COLOR_RGB2GRAY) if source.ndim == 3 else source
         search_gray = gray[sy1:sy2, sx1:sx2]
         if search_gray.size == 0:
             return LocalAnalysisResult("FAILED", None, 0.0, "none", "Пустая зона поиска")
 
-        # Линии таблицы на сканах обычно стабильнее содержимого ячейки.
         blurred = cv2.GaussianBlur(search_gray, (3, 3), 0)
         binary = cv2.adaptiveThreshold(
             blurred,
@@ -115,8 +138,8 @@ class LocalAnalysisService:
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel, iterations=1)
 
         contours, _ = cv2.findContours(binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-        expected_w = max(1, reference_box[2] - reference_box[0])
-        expected_h = max(1, reference_box[3] - reference_box[1])
+        expected_w = max(1, expected_box[2] - expected_box[0])
+        expected_h = max(1, expected_box[3] - expected_box[1])
 
         best_box = None
         best_score = 0.0
@@ -129,16 +152,14 @@ class LocalAnalysisService:
             if w * h < expected_w * expected_h * 0.30:
                 continue
 
-            score = self._score_candidate((x, y, w, h), reference_box, search_box)
+            score = self._score_candidate((x, y, w, h), expected_box, search_box)
             if score > best_score:
                 best_score = score
                 best_box = (sx1 + x, sy1 + y, sx1 + x + w, sy1 + y + h)
 
         if best_box is not None and best_score >= 0.62:
             status = "GOOD" if best_score >= 0.78 else "WARNING"
-            logger.info(
-                f"Local: рамка найдена, confidence={best_score:.2f}, box={best_box}"
-            )
+            logger.info(f"Local: рамка найдена, confidence={best_score:.2f}, box={best_box}")
             return LocalAnalysisResult(
                 status,
                 best_box,
@@ -147,8 +168,6 @@ class LocalAnalysisService:
                 "Найдена рамка ячейки рядом с эталонной областью",
             )
 
-        # Если контур нестабилен, не считаем анализ проваленным: расширенная зона
-        # всё равно компенсирует небольшой сдвиг страницы и даёт OCR больше контекста.
         logger.info(
             f"Local: уверенная рамка не найдена (best={best_score:.2f}), "
             f"используется расширенная зона {search_box}"
