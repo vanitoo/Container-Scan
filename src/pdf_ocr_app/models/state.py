@@ -60,6 +60,7 @@ class AppState:
     recognition_mode: int = 0
     use_legacy_tesseract: bool = False
     mass_page_scale: bool = False
+    preview_ocr_filters: bool = False
     advanced_options: Dict[str, Any] = field(default_factory=lambda: {
         "grayscale": {"enabled": True},
         "median_blur": {"enabled": True, "kernel": 3},
