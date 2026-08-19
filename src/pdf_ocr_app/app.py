@@ -6,7 +6,7 @@ import os
 from dotenv import load_dotenv, set_key
 
 from pdf_ocr_app.config import DEFAULT_COORDINATES, ENV_FILE
-from pdf_ocr_app.gui.main_window_alignment import MainWindow
+from pdf_ocr_app.gui.main_window_template_fields import MainWindow
 from pdf_ocr_app.models.state import AppState
 from pdf_ocr_app.services.aligned_pdf_service import AlignedPDFService
 from pdf_ocr_app.services.alignment_service import AlignmentService
