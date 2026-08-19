@@ -92,8 +92,8 @@ class MainWindow(ResultsMainWindow):
         method = self.ANALYSIS_METHODS.get(selected_label)
 
         if method == "analysis1":
-            logger.info("Запуск Анализ1: перенос области по ORB/Homography")
-            self.analyze_layout()
+            logger.info("Запуск Анализ1: шаблон SMGS-01 + перенос области по ORB/Homography")
+            self.analyze_layout_v1_template()
             return
 
         if method == "analysis2":
@@ -110,6 +110,62 @@ class MainWindow(ResultsMainWindow):
             "Анализ",
             f"Неизвестный метод анализа: {selected_label}",
         )
+
+    def analyze_layout_v1_template(self):
+        """Run Analysis1 against the fixed SMGS-01 template instead of PDF page 1."""
+        if not self.state.pdf_doc or self.state.original_page_image is None:
+            messagebox.showwarning("Анализ1", "Сначала выберите PDF-файл.")
+            return
+
+        try:
+            reference_image = self.app.template_service.load_smgs_01()
+        except Exception as exc:
+            logger.error(f"Анализ1: не удалось загрузить шаблон SMGS-01: {exc}", exc_info=True)
+            messagebox.showerror("Анализ1", f"Не удалось загрузить шаблон SMGS-01:\n{exc}")
+            return
+
+        if self.state.scale_factor <= 0:
+            messagebox.showerror("Анализ1", "Некорректный масштаб текущего листа.")
+            return
+
+        # Текущая ручная область хранится в координатах canvas. Переводим её в
+        # нормализованные координаты листа и накладываем на постоянный template.png.
+        page_width, page_height = self.state.original_page_image.size
+        inverse_scale = 1 / self.state.scale_factor
+        current_box = (
+            round(self.state.x_start * inverse_scale),
+            round(self.state.y_start * inverse_scale),
+            round(self.state.x_end * inverse_scale),
+            round(self.state.y_end * inverse_scale),
+        )
+        x1, y1, x2, y2 = current_box
+        reference_box = (
+            round(x1 / page_width * reference_image.width),
+            round(y1 / page_height * reference_image.height),
+            round(x2 / page_width * reference_image.width),
+            round(y2 / page_height * reference_image.height),
+        )
+
+        self.btn_analyze_layout.config(state=tk.DISABLED)
+        self.components["status"].update_status(msg="Анализ1: сопоставление с шаблоном SMGS-01...")
+        page_image = self.state.original_page_image.copy()
+        threading.Thread(
+            target=self._analyze1_template_worker,
+            args=(reference_image, page_image, reference_box),
+            daemon=True,
+        ).start()
+
+    def _analyze1_template_worker(self, reference_image, page_image, reference_box):
+        try:
+            result = self.app.pdf_service.align_area_to_reference(
+                reference_image,
+                page_image,
+                reference_box,
+            )
+            self.root.after(0, self._apply_layout_analysis, result)
+        except Exception as exc:
+            logger.error(f"Анализ1 по шаблону завершился ошибкой: {exc}", exc_info=True)
+            self.root.after(0, self._layout_analysis_failed, str(exc))
 
     def analyze_layout_local(self):
         """Уточнить область контейнера локально и распознать найденную область."""
@@ -166,7 +222,6 @@ class MainWindow(ResultsMainWindow):
             )
             return
 
-        # Local всегда работает с исходным листом, даже если до него запускали Анализ2.
         self.state.aligned_page_images.pop(page_index, None)
         self.state.original_page_image = current_image.copy()
         if not self.app.pdf_service.create_display_image():
@@ -199,8 +254,6 @@ class MainWindow(ResultsMainWindow):
             msg=f"Local {result.status}: {result.method}, confidence={confidence_text}"
         )
 
-        # Даже fallback-область полезна: она специально расширена, чтобы поймать
-        # небольшой X/Y сдвиг. OCR запускаем и явно сообщаем качество локализации.
         self._run_ocr_after_local(page_index, result)
 
     def _run_ocr_after_local(self, page_index, result):

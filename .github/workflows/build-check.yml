@@ -37,6 +37,7 @@ jobs:
           --name ContainerScan
           --icon icon.ico
           --add-data "icon.ico;."
+          --add-data "templates;templates"
           --paths src
           --hidden-import=_ssl
           --collect-all=certifi
