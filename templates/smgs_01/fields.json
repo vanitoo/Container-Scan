@@ -1,1 +1,20 @@
-{}
+{
+  "template": "template.png",
+  "template_source": {
+    "document": "Накладная-СМГС-с-возможность-заполнения-листы-с-1-по-6.pdf",
+    "page": 1,
+    "form": "1 Оригинал накладной (для получателя)"
+  },
+  "coordinate_system": "normalized",
+  "fields": {
+    "container_number": {
+      "label": "Номер контейнера",
+      "box_norm": [0.04, 0.60, 0.50, 0.675],
+      "search_box_norm": [0.02, 0.55, 0.56, 0.71],
+      "regex": "^[A-Z]{3}U\\d{7}$",
+      "ocr_hint": "container_number",
+      "review_required": true,
+      "note": "Первичная широкая область по строке контейнера. Координаты следует уточнить после прогона реальных сканов через шаблонное выравнивание."
+    }
+  }
+}
