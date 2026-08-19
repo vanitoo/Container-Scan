@@ -63,7 +63,7 @@ jobs:
 
       - name: Build .exe with PyInstaller (no strip)
         run: |
-          poetry run pyinstaller --onefile --noconsole --clean --name ContainerScan --icon icon.ico --add-data "icon.ico;." --paths src --hidden-import=_ssl --collect-all=certifi run.py
+          poetry run pyinstaller --onefile --noconsole --clean --name ContainerScan --icon icon.ico --add-data "icon.ico;." --add-data "templates;templates" --paths src --hidden-import=_ssl --collect-all=certifi run.py
 
         # Пояснение:
         # --hidden-import=_ssl   → страхуем явное включение SSL-модуля
