@@ -17,7 +17,7 @@ dependencies = [
     "python-dotenv (>=1.2,<2)",
     "colorama (>=0.4.6,<0.5.0)",
     "numpy (>=2.2,<2.4)",
-    "pillow (>=12.3,<13)",
+    "pillow (>=13.0.0,<14)",
     "sv-ttk (>=2.6.1,<3)"
 ]
 
